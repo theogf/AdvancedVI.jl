@@ -50,7 +50,7 @@ const VariationalPosterior = Distribution{Multivariate, Continuous}
 """
     grad!(vo, alg::VariationalInference, q, model::Model, θ, out, args...)
 
-Computes the gradients used in `optimize!`. Default implementation is provided for 
+Computes the gradients used in `optimize!`. Default implementation is provided for
 `VariationalInference{AD}` where `AD` is either `ForwardDiffAD` or `TrackerAD`.
 This implicitly also gives a default implementation of `optimize!`.
 
@@ -164,7 +164,7 @@ function optimize!(
     alg_name = alg_str(alg)
     samples_per_step = alg.samples_per_step
     max_iters = alg.max_iters
-    
+
     num_params = length(θ)
 
     # TODO: really need a better way to warn the user about potentially
@@ -191,7 +191,7 @@ function optimize!(
         Δ = DiffResults.gradient(diff_result)
         Δ = apply!(optimizer, θ, Δ)
         @. θ = θ - Δ
-        
+
         AdvancedVI.DEBUG && @debug "Step $i" Δ DiffResults.value(diff_result)
         PROGRESS[] && (ProgressMeter.next!(prog))
 
@@ -227,5 +227,6 @@ include("optimisers.jl")
 
 # VI algorithms
 include("advi.jl")
+include("steinvi.jl")
 
 end # module
