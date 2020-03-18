@@ -36,7 +36,11 @@ export
     ELBO,
     elbo,
     TruncatedADAGrad,
-    DecayedADAGrad
+    DecayedADAGrad,
+    SteinVI,
+    SteinDistribution,
+    SamplesMvNormal,
+    PFlowVI
 
 abstract type VariationalInference{AD} end
 
@@ -265,5 +269,6 @@ include("optimisers.jl")
 # VI algorithms
 include("advi.jl")
 include("steinvi.jl")
+include("gausspartflow.jl")
 
 end # module

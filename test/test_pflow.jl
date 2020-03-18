@@ -19,17 +19,16 @@ using Makie, Colors
 ##
 
 max_iter = 100
-k = transform(SqExponentialKernel(),1.0)
 m = model(x)
-Turing.VarInfo(m).metadata
-steinvi = AdvancedVI.SteinVI(max_iter, k)
-q = AVI.SteinDistribution(randn(100,2),[true,false])
-q = AdvancedVI.vi(m, steinvi, 100, optimizer = ADAGrad(0.1))
-@profiler q = AdvancedVI.vi(m, steinvi, 100, optimizer = ADAGrad(0.1))
-mean(q)
-cov(q)
+flowvi = AdvancedVI.PFlowVI(max_iter, true, true)
+q = AVI.SamplesMvNormal(randn(100,2),[true,false])
+q = AdvancedVI.vi(m, flowvi, 100, optimizer = ADAGrad(0.1))
+@profiler q = AdvancedVI.vi(m, flowvi, 100, optimizer = ADAGrad(0.1))
 # global q = AdvancedVI.vi(m, steinvi, q, optimizer = ADAGrad(0.1))
+##
 
+q = SamplesMvNormal(randn(100,2)*0.1,[true,false])
+logπ = Turing.Variational.make_logjoint(m)
 limits = FRect2D((.5,-.5),(1,1))
 t = Node(1)
 trajectories = [lift(t; init = [Point2f0(AVI.transform_particle(q,q.x[i,:]))]) do t
@@ -47,10 +46,10 @@ colors = colormap("Reds",max_iter)
 cc = lift(t->colors[1:t],t)
 lines!.(trajectories,color=cc)
 scatter!(samples, color=:red,markersize=0.01)
-record(scene,joinpath(@__DIR__,"path_particles.gif"),framerate=10) do io
-    function cb(q,model,i)
+record(scene,joinpath(@__DIR__,"path_particles_pflow.gif"),framerate=10) do io
+    function cb(q,i)
         t[] = i
         recordframe!(io)
     end
-    global q = AdvancedVI.vi(m, steinvi, q, optimizer = ADAGrad(0.1), callback = cb)
+    global q = AdvancedVI.vi(logπ, flowvi, q, optimizer = ADAGrad(0.1), callback = cb)
 end
