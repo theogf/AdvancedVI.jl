@@ -18,12 +18,14 @@ using Makie, Colors
 
 ##
 
-max_iter = 200
+max_iter = 500
 k = transform(SqExponentialKernel(),1.0)
 m = model(x)
 Turing.VarInfo(m).metadata
 steinvi = AdvancedVI.SteinVI(max_iter, k)
-q = AVI.SteinDistribution(rand(100,2),[false,false])
+q = AVI.SteinDistribution(randn(100,2),[true,false])
+q = AdvancedVI.vi(m, steinvi, 100, optimizer = ADAGrad(0.1))
+AVI.q_
 # global q = AdvancedVI.vi(m, steinvi, q, optimizer = ADAGrad(0.1))
 
 limits = FRect2D((.5,-.5),(1,1))
@@ -34,7 +36,7 @@ end  for i in 1:q.n_particles ]
 # alpha = lift(t; init = [1.0]) do t
     # push!(alpha[],exp(-t))
 # end
-samples = lift(t; init = Point2f0.(AVI.transform_particle.([q],eachrow(q.x))) do t
+samples = lift(t; init = Point2f0.(AVI.transform_particle.([q],eachrow(q.x)))) do t
     samples = Point2f0.(AVI.transform_particle.([q],eachrow(q.x)))
 end
 scene = Scene(limits=limits)

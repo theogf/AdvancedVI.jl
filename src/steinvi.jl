@@ -19,8 +19,8 @@ transform_particle(d::SteinDistribution, x::AbstractVector) =
 Base.length(d::SteinDistribution) = d.dim
 # Random._rand!(d::SteinDistribution, v::AbstractVector) = d.x
 eltype(::SteinDistribution{T}) where {T} = T
-Distributions.mean(d::SteinDistribution) = Statistics.mean(d.x, dims = 1)
-cov(d::SteinDistribution) = cov(d.x, dims=1)
+Distributions.mean(d::SteinDistribution) = Statistics.mean(transform_particle.(Ref(d),eachrow(d.x)))
+Distributions.cov(d::SteinDistribution) = Statistics.cov(transform_particle.(Ref(d),eachrow(d.x)))
 
 """
     SteinVI(n_particles = 100, max_iters = 1000)
@@ -46,9 +46,10 @@ function vi(model, alg::SteinVI, n_particles::Int ; optimizer = TruncatedADAGrad
     for v in vars
         nVars += length(v.vals)
         lbs = getproperty.(support.(v.dists), :lb)
-        domains = vcat(domains, lbs.==-Inf)
+        domains = vcat(domains, lbs.!=-Inf)
     end
-    vi(model, alg, SteinDistribution(randn(n_particles, nVars), domains))
+    q = SteinDistribution(randn(n_particles, nVars), domains)
+    vi(model, alg, q; optimizer = optimizer, callback = callback)
 end
 
 function vi(model, alg::SteinVI, q::SteinDistribution; optimizer = TruncatedADAGrad(), callback = nothing)
