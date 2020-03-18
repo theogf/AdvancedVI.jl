@@ -1,6 +1,9 @@
 using Turing
-using AdvancedVI
-using KernelFunctions
+using AdvancedVI; const AVI = AdvancedVI
+using KernelFunctions, Distances
+using ForwardDiff
+using LinearAlgebra
+using Flux
 
 x = randn(2000)
 
@@ -11,9 +14,39 @@ x = randn(2000)
         x[i] ~ Normal(m, sqrt(s))
     end
 end
+using Makie, Colors
 
+##
+
+max_iter = 200
+k = transform(SqExponentialKernel(),1.0)
 m = model(x)
+Turing.VarInfo(m).metadata
+steinvi = AdvancedVI.SteinVI(max_iter, k)
+q = AVI.SteinDistribution(rand(100,2),[false,false])
+# global q = AdvancedVI.vi(m, steinvi, q, optimizer = ADAGrad(0.1))
 
-steinvi = AdvancedVI.SteinVI(1000, SqExponentialKernel())
-q = AdvancedVI.SteinDistribution(1, 100, rand(1,100))
-q = AdvancedVI.vi(m, steinvi, q)
+limits = FRect2D((.5,-.5),(1,1))
+t = Node(1)
+trajectories = [lift(t; init = [Point2f0(AVI.transform_particle(q,q.x[i,:]))]) do t
+        push!(trajectories[i][], Point2f0(AVI.transform_particle(q,q.x[i,:])))
+end  for i in 1:q.n_particles ]
+# alpha = lift(t; init = [1.0]) do t
+    # push!(alpha[],exp(-t))
+# end
+samples = lift(t; init = Point2f0.(AVI.transform_particle.([q],eachrow(q.x))) do t
+    samples = Point2f0.(AVI.transform_particle.([q],eachrow(q.x)))
+end
+scene = Scene(limits=limits)
+
+colors = colormap("Reds",max_iter)
+cc = lift(t->colors[1:t],t)
+lines!.(trajectories,color=cc)
+scatter!(samples, color=:red,markersize=0.01)
+record(scene,joinpath(@__DIR__,"path_particles.gif"),framerate=10) do io
+    function cb(q,model,i)
+        t[] = i
+        recordframe!(io)
+    end
+    global q = AdvancedVI.vi(m, steinvi, q, optimizer = ADAGrad(0.1), callback = cb)
+end
