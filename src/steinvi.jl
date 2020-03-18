@@ -17,11 +17,22 @@ transform_particle(d::SteinDistribution, x::AbstractVector) =
     ifelse.(d.transforms,softplus.(x),x)
 
 Base.length(d::SteinDistribution) = d.dim
+
 # Random._rand!(d::SteinDistribution, v::AbstractVector) = d.x
-eltype(::SteinDistribution{T}) where {T} = T
+Base.eltype(::SteinDistribution{T}) where {T} = T
+function Distributions._rand!(rng::AbstractRNG, d::SteinDistribution, x::AbstractVector)
+    nDim = length(x)
+    @assert nDim == d.dim "Wrong dimensions"
+    x .= d.x[rand(rng, 1:d.n_particles),:]
+end
+function Distributions._rand!(rng::AbstractRNG, d::SteinDistribution, x::AbstractMatrix)
+    nDim, nPoints = size(x)
+    @assert nDim == d.dim "Wrong dimensions"
+    x .= d.x[rand(rng, 1:d.n_particles, nPoints),:]'
+end
 Distributions.mean(d::SteinDistribution) = Statistics.mean(transform_particle.(Ref(d),eachrow(d.x)))
 Distributions.cov(d::SteinDistribution) = Statistics.cov(transform_particle.(Ref(d),eachrow(d.x)))
-
+Distributions.var(d::SteinDistribution) = Statistics.var(transform_particle.(Ref(d),eachrow(d.x)))
 """
     SteinVI(n_particles = 100, max_iters = 1000)
 
@@ -39,7 +50,7 @@ SteinVI() = SteinVI(100, SqExponentialKernel())
 
 alg_str(::SteinVI) = "SteinVI"
 
-function vi(model, alg::SteinVI, n_particles::Int ; optimizer = TruncatedADAGrad(), callback = nothing)
+function vi(model::Turing.Model, alg::SteinVI, n_particles::Int ; optimizer = TruncatedADAGrad(), callback = nothing)
     vars = Turing.VarInfo(model).metadata
     nVars = 0
     domains = Bool[]
@@ -49,31 +60,30 @@ function vi(model, alg::SteinVI, n_particles::Int ; optimizer = TruncatedADAGrad
         domains = vcat(domains, lbs.!=-Inf)
     end
     q = SteinDistribution(randn(n_particles, nVars), domains)
-    vi(model, alg, q; optimizer = optimizer, callback = callback)
+    logπ = make_logjoint(model)
+    vi(logπ, alg, q; optimizer = optimizer, callback = callback)
 end
 
-function vi(model, alg::SteinVI, q::SteinDistribution; optimizer = TruncatedADAGrad(), callback = nothing)
+function vi(logπ::Function, alg::SteinVI, q::SteinDistribution; optimizer = TruncatedADAGrad(), callback = nothing)
     DEBUG && @debug "Optimizing SteinVI..."
     # Initial parameters for mean-field approx
     # Optimize
-    optimize!(LogP(), alg, q, model, [0.0]; optimizer = optimizer, callback = callback)
+    optimize!(alg, q, logπ, [0.0]; optimizer = optimizer, callback = callback)
 
     # Return updated `Distribution`
     return q
 end
 
 function optimize!(
-    logp::LogP,
     alg::SteinVI,
     q::SteinDistribution,
-    model,
+    logπ,
     θ::AbstractVector{<:Real};
     optimizer = TruncatedADAGrad(),
     callback = nothing
 )
     alg_name = alg_str(alg)
     max_iters = alg.max_iters
-    logπ = make_logjoint(model)
 
     # diff_result = DiffResults.GradientResult(θ)
     alg.kernel.transform.s .= log(q.n_particles) / sqrt( 0.5 * median(
@@ -88,28 +98,34 @@ function optimize!(
 
     time_elapsed = @elapsed while (i < max_iters) # & converged
 
-        K = kernelmatrix(alg.kernel, q.x, obsdim = 1)
-        # global gradK= reshape(
-        #     ForwardDiff.jacobian(
-        #             x -> kernelmatrix(alg.kernel, x, obsdim = 1),
-        #             q.x),
-        #         q.n_particles, q.n_particles, q.n_particles, q.dim)
-        gradK_unshaped = ForwardDiff.jacobian(
-                    x -> kernelmatrix(alg.kernel, x, obsdim = 1),
-                    q.x)
-        gradK = reshape(gradK_unshaped,q.n_particles, q.n_particles, q.n_particles, q.dim)
+        Δ = zeros(q.n_particles, q.dim) #Preallocate gradient
+        K = kernelmatrix(alg.kernel, q.x, obsdim = 1) #Compute kernel matrix
         gradlogp = ForwardDiff.gradient.(
-                    z -> logπ(transform_particle(q,z)),
-                    eachrow(q.x))
+        z -> logπ(transform_particle(q,z)),
+        eachrow(q.x))
+        # Option 1 : Preallocate
+        gradK = reshape(
+            ForwardDiff.jacobian(
+                    x -> kernelmatrix(alg.kernel, x, obsdim = 1),
+                    q.x),
+                q.n_particles, q.n_particles, q.n_particles, q.dim)
         #grad!(vo, alg, q, model, θ, diff_result)
-        Δ = zeros(q.n_particles, q.dim)
         for k in 1:q.n_particles
             Δ[k,:] = sum(K[j, k] * gradlogp[j] + gradK[j, k, j, :]
                 for j in 1:q.n_particles) / q.n_particles
         end
+        # Option 2 : On time computations
+        # for k in 1:q.n_particles
+        #     Δ[k,:] = sum(
+        #         K[j, k] * gradlogp[j] +
+        #         ForwardDiff.gradient(x->KernelFunctions.kappa(alg.kernel,q.x[j,:],x), q.x[k,:])
+        #         for j in 1:q.n_particles) / q.n_particles
+        # end
+
+
         # apply update rule
         # Δ = DiffResults.gradient(diff_result)
-        global Δ = apply!(optimizer, q.x, Δ)
+        Δ = apply!(optimizer, q.x, Δ)
         @. q.x = q.x + Δ
         alg.kernel.transform.s .=
             log(q.n_particles) / sqrt( 0.5 * median(
@@ -118,25 +134,11 @@ function optimize!(
         if !isnothing(callback)
             callback(q,model,i)
         end
-        # AdvancedVI.DEBUG && @debug "Step $i" Δ DiffResults.value(diff_result)
-        # PROGRESS[] && (ProgressMeter.next!(prog))
+        AdvancedVI.DEBUG && @debug "Step $i" Δ
+        PROGRESS[] && (ProgressMeter.next!(prog))
 
         i += 1
     end
 
     return q
-end
-
-function (logp::LogP)(
-    rng::AbstractRNG,
-    alg::SteinVI,
-    q::VariationalPosterior,
-    model,
-    θ
-)
-    vi = Turing.VarInfo(model)
-    spl = Turing.SampleFromPrior()
-    new_vi = Turing.VarINfo(vi, spl, θ)
-    model(new_vi, spl)
-    getlogp(new_vi)
 end

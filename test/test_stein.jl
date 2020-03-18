@@ -18,14 +18,15 @@ using Makie, Colors
 
 ##
 
-max_iter = 500
+max_iter = 20
 k = transform(SqExponentialKernel(),1.0)
 m = model(x)
 Turing.VarInfo(m).metadata
 steinvi = AdvancedVI.SteinVI(max_iter, k)
 q = AVI.SteinDistribution(randn(100,2),[true,false])
-q = AdvancedVI.vi(m, steinvi, 100, optimizer = ADAGrad(0.1))
-AVI.q_
+@profiler q = AdvancedVI.vi(m, steinvi, 100, optimizer = ADAGrad(0.1))
+mean(q)
+cov(q)
 # global q = AdvancedVI.vi(m, steinvi, q, optimizer = ADAGrad(0.1))
 
 limits = FRect2D((.5,-.5),(1,1))
