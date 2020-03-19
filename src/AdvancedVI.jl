@@ -163,7 +163,8 @@ function optimize!(
     q,
     model,
     θ::AbstractVector{<:Real};
-    optimizer = TruncatedADAGrad()
+    optimizer = TruncatedADAGrad(),
+    callback = nothing
 )
     # TODO: should we always assume `samples_per_step` and `max_iters` for all algos?
     alg_name = alg_str(alg)
@@ -200,6 +201,9 @@ function optimize!(
         AdvancedVI.DEBUG && @debug "Step $i" Δ DiffResults.value(diff_result)
         PROGRESS[] && (ProgressMeter.next!(prog))
 
+        if !isnothing(callback)
+            callback(q, θ, i)
+        end
         i += 1
     end
 
@@ -221,43 +225,6 @@ import StatsBase: entropy
 function entropy(d::TuringDiagMvNormal)
     T = eltype(d.σ)
     return (DistributionsAD.length(d) * (T(log2π) + one(T)) / 2 + sum(log.(d.σ)))
-end
-
-
-"""
-    make_logjoint(model::Model; weight = 1.0)
-
-Constructs the logjoint as a function of latent variables, i.e. the map z → p(x ∣ z) p(z).
-
-The weight used to scale the likelihood, e.g. when doing stochastic gradient descent one needs to
-use `DynamicPPL.MiniBatch` context to run the `Model` with a weight `num_total_obs / batch_size`.
-
-## Notes
-- For sake of efficiency, the returned function is closes over an instance of `VarInfo`. This means that you *might* run into some weird behaviour if you call this method sequentially using different types; if that's the case, just generate a new one for each type using `make_logjoint`.
-"""
-function make_logjoint(model::Turing.Model; weight = 1.0)
-    # setup
-    ctx = DynamicPPL.MiniBatchContext(
-        DynamicPPL.DefaultContext(),
-        weight
-    )
-    varinfo_init = Turing.VarInfo(model, ctx)
-
-    function logπ(z)
-        varinfo = Turing.VarInfo(varinfo_init, Turing.SampleFromUniform(), z)
-        model(varinfo)
-
-        return Turing.getlogp(varinfo)
-    end
-
-    return logπ
-end
-
-function logjoint(model::Turing.Model, varinfo, z)
-    varinfo = Turing.VarInfo(varinfo, Turing.SampleFromUniform(), z)
-    model(varinfo)
-
-    return Turing.getlogp(varinfo)
 end
 
 # objectives
