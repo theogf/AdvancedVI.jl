@@ -21,23 +21,23 @@ ADVI() = ADVI(1, 1000)
 alg_str(::ADVI) = "ADVI"
 
 
-function vi(model, alg::ADVI, q::TransformedDistribution{<:TuringDiagMvNormal}; optimizer = TruncatedADAGrad())
+function vi(model, alg::ADVI, q::TransformedDistribution{<:TuringDiagMvNormal}; optimizer = TruncatedADAGrad(), callback = nothing)
     DEBUG && @debug "Optimizing ADVI..."
     # Initial parameters for mean-field approx
     μ, σs = params(q)
     θ = vcat(μ, invsoftplus.(σs))
 
     # Optimize
-    optimize!(elbo, alg, q, model, θ; optimizer = optimizer)
+    optimize!(elbo, alg, q, model, θ; optimizer = optimizer, callback = callback)
 
     # Return updated `Distribution`
     return update(q, θ)
 end
 
-function vi(model, alg::ADVI, q, θ_init; optimizer = TruncatedADAGrad())
+function vi(model, alg::ADVI, q, θ_init; optimizer = TruncatedADAGrad(), callback = nothing)
     DEBUG && @debug "Optimizing ADVI..."
     θ = copy(θ_init)
-    optimize!(elbo, alg, q, model, θ; optimizer = optimizer)
+    optimize!(elbo, alg, q, model, θ; optimizer = optimizer, callback = callback)
 
     # If `q` is a mean-field approx we use the specialized `update` function
     if q isa Distribution
@@ -49,11 +49,11 @@ function vi(model, alg::ADVI, q, θ_init; optimizer = TruncatedADAGrad())
 end
 
 
-function optimize(elbo::ELBO, alg::ADVI, q, model, θ_init; optimizer = TruncatedADAGrad())
+function optimize(elbo::ELBO, alg::ADVI, q, model, θ_init; optimizer = TruncatedADAGrad(), callback = nothing)
     θ = copy(θ_init)
-    
+
     # `model` assumed to be callable z ↦ p(x, z)
-    optimize!(elbo, alg, q, model, θ; optimizer = optimizer)
+    optimize!(elbo, alg, q, model, θ; optimizer = optimizer, callback = callback)
 
     return θ
 end
@@ -92,7 +92,7 @@ function (elbo::ELBO)(
     res = (logπ(z) + logjac) / num_samples
 
     res += (q isa TransformedDistribution) ? entropy(q.dist) : entropy(q)
-    
+
     for i = 2:num_samples
         _, z, logjac, _ = forward(rng, q)
         res += (logπ(z) + logjac) / num_samples
@@ -100,4 +100,3 @@ function (elbo::ELBO)(
 
     return res
 end
-
