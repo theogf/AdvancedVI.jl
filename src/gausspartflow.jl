@@ -4,23 +4,20 @@ using KernelFunctions
 using Random: AbstractRNG, GLOBAL_RNG
 
 struct SamplesMvNormal{T,M<:AbstractMatrix{T}} <: Distributions.ContinuousMultivariateDistribution
-    n_particles::Int
     dim::Int
+    n_particles::Int
     x::M
     μ::Vector{T}
     Σ::Matrix{T}
-    transforms::BitArray
-    function SamplesMvNormal(x::M, domains=falses(size(x,2))) where {T, M<: AbstractMatrix{T}}
-        new{T,M}(size(x)..., x, vec(mean(x, dims = 2)), cov(x, dims = 2), domains)
+    function SamplesMvNormal(x::M) where {T, M<: AbstractMatrix{T}}
+        new{T,M}(size(x)..., x, vec(mean(x, dims = 2)), cov(x, dims = 2))
     end
 end
-
-transform_particle(d::SamplesMvNormal, x::AbstractVector) =
-    ifelse.(d.transforms,softplus.(x),x)
 
 function update_q!(d::SamplesMvNormal)
     d.μ .= vec(mean(d.x, dims = 2))
     d.Σ .= cov(d.x, dims = 2)
+    nothing
 end
 
 Base.length(d::SamplesMvNormal) = d.dim
@@ -39,7 +36,10 @@ function Distributions._rand!(rng::AbstractRNG, d::SamplesMvNormal, x::AbstractM
 end
 Distributions.mean(d::SamplesMvNormal) = d.μ
 Distributions.cov(d::SamplesMvNormal) = d.Σ
-Distributions.var(d::SteinDistribution) = diag(d.Σ)
+Distributions.var(d::SamplesMvNormal) = diag(d.Σ)
+
+const SampMvNormal = Union{<:SamplesMvNormal,<:TransformedDistribution{<:SamplesMvNormal}}
+
 """
     SteinVI(n_particles = 100, max_iters = 1000)
 
@@ -59,20 +59,12 @@ PFlowVI() = PFlowVI(100, true, false)
 alg_str(::PFlowVI) = "PFlowVI"
 
 function vi(model::Turing.Model, alg::PFlowVI, n_particles::Int ; optimizer = TruncatedADAGrad(), callback = nothing)
-    vars = Turing.VarInfo(model).metadata
-    nVars = 0
-    domains = Bool[]
-    for v in vars
-        nVars += length(v.vals)
-        lbs = getproperty.(support.(v.dists), :lb)
-        domains = vcat(domains, lbs.!=-Inf)
-    end
-    q = SamplesMvNormal(randn(n_particles, nVars), domains)
+    q = transformed(SamplesMvNormal(randn(n_particles, nVars)),bijector(model))
     logπ = make_logjoint(model)
     vi(logπ, alg, q; optimizer = optimizer, callback = callback)
 end
 
-function vi(logπ::Function, alg::PFlowVI, q::SamplesMvNormal; optimizer = TruncatedADAGrad(), callback = nothing)
+function vi(logπ::Function, alg::PFlowVI, q::SampMvNormal; optimizer = TruncatedADAGrad(), callback = nothing)
     DEBUG && @debug "Optimizing $(alg_str(alg))..."
     # Initial parameters for mean-field approx
     # Optimize
@@ -82,9 +74,18 @@ function vi(logπ::Function, alg::PFlowVI, q::SamplesMvNormal; optimizer = Trunc
     return q
 end
 
+function phi(q::TransformedDistribution, z, logπ)
+    (w,detJ) = forward(q.transform, z)
+    return - logπ(w) - detJ
+end
+
+function phi(q::Distribution, z, logπ)
+    - logπ(z)
+end
+
 function optimize!(
     alg::PFlowVI,
-    q::SamplesMvNormal,
+    q::SampMvNormal,
     logπ,
     θ::AbstractVector{<:Real};
     optimizer = TruncatedADAGrad(),
@@ -106,29 +107,28 @@ function optimize!(
 
 
         g = mapslices( x -> ForwardDiff.gradient(
-            z -> -logπ(transform_particle(q, z)), x), q.x, dims = 2)
+            z -> phi(q, z, logπ), x), q.dist.x, dims = 1)
 
         Δ₁ = if alg.precondΔ₁
-            q.Σ * vec(mean(g, dims = 2))
+            q.dist.Σ * vec(mean(g, dims = 2))
         else
             vec(mean(g, dims = 2))
         end
-
-        shift_x = q.x .- q.μ
+        global shift_x = q.dist.x .- q.dist.μ
         ψ = mean(eachcol(g) .* transpose.(eachcol(shift_x)))
-        A = ψ - I
+        global A = ψ - I
         Δ₂ = if alg.precondΔ₂
-            2*tr(A'*A)/(tr(A^2)+tr(A'*inv(q.Σ)*A*q.Σ))*A*shift_x
+            2*tr(A'*A)/(tr(A^2)+tr(A'*inv(q.dist.Σ)*A*q.dist.Σ))*A*shift_x
         else
             A*shift_x
         end
 
         # apply update rule
-        Δ₁ = apply!(optimizer, q.μ, Δ₁)
-        Δ₂ = apply!(optimizer, q.x, Δ₂)
-        @. q.x = q.x - Δ₁ - Δ₂
+        Δ₁ = apply!(optimizer, q.dist.μ, Δ₁)
+        Δ₂ = apply!(optimizer, q.dist.x, Δ₂)
+        @. q.dist.x = q.dist.x - Δ₁ - Δ₂
 
-        update_q!(q)
+        update_q!(q.dist)
 
         if !isnothing(callback)
             callback(q,i)
