@@ -86,7 +86,7 @@ function optimize!(
     max_iters = alg.max_iters
 
     # diff_result = DiffResults.GradientResult(θ)
-    alg.kernel.transform.s .= log(q.n_particles) / sqrt( 0.5 * median(
+    alg.kernel.transform.s .= log(q.n_particles) / sqrt(median(
     pairwise(SqEuclidean(), q.x, dims = 1)))
 
     i = 0
@@ -128,7 +128,7 @@ function optimize!(
         Δ = apply!(optimizer, q.x, Δ)
         @. q.x = q.x + Δ
         alg.kernel.transform.s .=
-            log(q.n_particles) / sqrt( 0.5 * median(
+            log(q.n_particles) / sqrt(median(
             pairwise(SqEuclidean(), q.x, dims = 1)))
 
         if !isnothing(callback)

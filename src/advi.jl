@@ -37,7 +37,7 @@ end
 function vi(model, alg::ADVI, q, θ_init; optimizer = TruncatedADAGrad(), callback = nothing)
     DEBUG && @debug "Optimizing ADVI..."
     θ = copy(θ_init)
-    optimize!(elbo, alg, q, model, θ; optimizer = optimizer, callback = callback)
+    optimize!(elbo, alg, q, model, θ_init; optimizer = optimizer, callback = callback)
 
     # If `q` is a mean-field approx we use the specialized `update` function
     if q isa Distribution

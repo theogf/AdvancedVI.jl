@@ -41,9 +41,9 @@ Distributions.var(d::SamplesMvNormal) = diag(d.Σ)
 const SampMvNormal = Union{<:SamplesMvNormal,<:TransformedDistribution{<:SamplesMvNormal}}
 
 """
-    SteinVI(n_particles = 100, max_iters = 1000)
+    PFlowVI(n_particles = 100, max_iters = 1000)
 
-Stein Variational Inference (SteinVI) for a given model.
+Gaussian Particle Flow Inference (PFlowVI) for a given model.
 """
 struct PFlowVI{AD} <: VariationalInference{AD}
     max_iters::Int        # maximum number of gradient steps used in optimization
