@@ -3,19 +3,18 @@ module AdvancedVI
 using Random: AbstractRNG
 
 using Distributions, DistributionsAD, Bijectors
+using DocStringExtensions
 
-# TODO: remove in favour of fix in DistributionsAD when that's done
-Base.size(d::TuringDiagMvNormal) = (length(d), )
+using ProgressMeter, LinearAlgebra
 
-using ProgressMeter, LinearAlgebra, Statistics
-using Distances
-using Turing
+using KernelFunctions, Distances
+
 using ForwardDiff
 using Tracker
 
 const PROGRESS = Ref(true)
 function turnprogress(switch::Bool)
-    @info("[Turing]: global PROGRESS is set as $switch")
+    @info("[AdvancedVI]: global PROGRESS is set as $switch")
     PROGRESS[] = switch
 end
 
@@ -25,9 +24,63 @@ include("ad.jl")
 
 using Requires
 function __init__()
-    @require Flux="587475ba-b771-5e3f-ad9e-33799f191a9c" apply!(o, x, Δ) = Flux.Optimise.apply!(o, x, Δ)
-    @require Flux="587475ba-b771-5e3f-ad9e-33799f191a9c" Flux.Optimise.apply!(o::TruncatedADAGrad, x, Δ) = apply!(o, x, Δ)
-    @require Flux="587475ba-b771-5e3f-ad9e-33799f191a9c" Flux.Optimise.apply!(o::DecayedADAGrad, x, Δ) = apply!(o, x, Δ)
+    @require Flux="587475ba-b771-5e3f-ad9e-33799f191a9c" begin
+        apply!(o, x, Δ) = Flux.Optimise.apply!(o, x, Δ)
+        Flux.Optimise.apply!(o::TruncatedADAGrad, x, Δ) = apply!(o, x, Δ)
+        Flux.Optimise.apply!(o::DecayedADAGrad, x, Δ) = apply!(o, x, Δ)
+    end
+    @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" begin
+        include("compat/zygote.jl")
+        export ZygoteAD
+
+        function AdvancedVI.grad!(
+            vo,
+            alg::VariationalInference{<:AdvancedVI.ZygoteAD},
+            q,
+            model,
+            θ::AbstractVector{<:Real},
+            out::DiffResults.MutableDiffResult,
+            args...
+        )
+            f(θ) = if (q isa Distribution)
+                - vo(alg, update(q, θ), model, args...)
+            else
+                - vo(alg, q(θ), model, args...)
+            end
+            y, back = Zygote.pullback(f, θ)
+            dy = first(back(1.0))
+            DiffResults.value!(out, y)
+            DiffResults.gradient!(out, dy)
+            return out
+        end
+    end
+    @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" begin
+        include("compat/reversediff.jl")
+        export ReverseDiffAD
+
+        function AdvancedVI.grad!(
+            vo,
+            alg::VariationalInference{<:AdvancedVI.ReverseDiffAD{false}},
+            q,
+            model,
+            θ::AbstractVector{<:Real},
+            out::DiffResults.MutableDiffResult,
+            args...
+        )
+            f(θ) = if (q isa Distribution)
+                - vo(alg, update(q, θ), model, args...)
+            else
+                - vo(alg, q(θ), model, args...)
+            end
+            tp = AdvancedVI.tape(f, θ)
+            ReverseDiff.gradient!(out, tp, θ)
+            return out
+        end
+    end
+    @require Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0" begin
+        include("turingmodels.jl")
+    end
+
 end
 
 export
@@ -37,6 +90,7 @@ export
     elbo,
     TruncatedADAGrad,
     DecayedADAGrad,
+    VariationalInference
     SteinVI,
     SteinDistribution,
     SamplesMvNormal,
@@ -61,18 +115,7 @@ This implicitly also gives a default implementation of `optimize!`.
 
 Variance reduction techniques, e.g. control variates, should be implemented in this function.
 """
-function grad!(
-    vo,
-    alg::VariationalInference,
-    q,
-    model,
-    θ,
-    out,
-    args...
-)
-    error("Turing.Variational.grad!: unmanaged variational inference algorithm: "
-          * "$(typeof(alg))")
-end
+function grad! end
 
 """
     vi(model, alg::VariationalInference)
@@ -89,18 +132,9 @@ following the configuration of the given `VariationalInference` instance.
 - `getq`: function taking parameters `θ` as input and returns a `VariationalPosterior`
 - `θ`: only required if `getq` is used, in which case it is the initial parameters for the variational posterior
 """
-function vi(model, alg::VariationalInference)
-    error("Turing.Variational.vi: variational inference algorithm $(typeof(alg)) "
-          * "is not implemented")
-end
-function vi(model, alg::VariationalInference, q)
-    error("Turing.Variational.vi: variational inference algorithm $(typeof(alg)) "
-          * "is not implemented")
-end
-function vi(model, alg::VariationalInference, q, θ_init)
-    error("Turing.Variational.vi: variational inference algorithm $(typeof(alg)) "
-          * "is not implemented")
-end
+function vi end
+
+function update end
 
 # default implementations
 function grad!(
@@ -112,7 +146,7 @@ function grad!(
     out::DiffResults.MutableDiffResult,
     args...
 )
-    f(θ_) = if (q isa VariationalPosterior)
+    f(θ_) = if (q isa Distribution)
         - vo(alg, update(q, θ_), model, args...)
     else
         - vo(alg, q(θ_), model, args...)
@@ -135,7 +169,7 @@ function grad!(
     args...
 )
     θ_tracked = Tracker.param(θ)
-    y = if (q isa VariationalPosterior)
+    y = if (q isa Distribution)
         - vo(alg, update(q, θ_tracked), model, args...)
     else
         - vo(alg, q(θ_tracked), model, args...)
@@ -146,10 +180,6 @@ function grad!(
     DiffResults.gradient!(out, Tracker.grad(θ_tracked))
 end
 
-import Tracker: TrackedArray, track, Call
-function TrackedArray(f::Call, x::SA) where {T, N, A, SA<:SubArray{T, N, A}}
-    TrackedArray(f, convert(A, x))
-end
 
 """
     optimize!(vo, alg::VariationalInference{AD}, q::VariationalPosterior, model::Model, θ; optimizer = TruncatedADAGrad())
@@ -208,23 +238,6 @@ function optimize!(
     end
 
     return θ
-end
-
-# utilities
-update(d::TuringDiagMvNormal, μ, σ) = TuringDiagMvNormal(μ, σ)
-update(td::TransformedDistribution, θ...) = transformed(update(td.dist, θ...), td.transform)
-function update(td::Union{TransformedDistribution{<:TuringDiagMvNormal},<:TuringDiagMvNormal}, θ::AbstractArray)
-    μ, ω = θ[1:length(td)], θ[length(td) + 1:end]
-    return update(td, μ, softplus.(ω))
-end
-
-# TODO: add these to DistributionsAD.jl and remove from here
-Distributions.params(d::TuringDiagMvNormal) = (d.m, d.σ)
-
-import StatsBase: entropy
-function entropy(d::TuringDiagMvNormal)
-    T = eltype(d.σ)
-    return (DistributionsAD.length(d) * (T(log2π) + one(T)) / 2 + sum(log.(d.σ)))
 end
 
 # objectives
