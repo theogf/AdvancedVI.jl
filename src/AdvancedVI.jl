@@ -7,6 +7,8 @@ using DocStringExtensions
 
 using ProgressMeter, LinearAlgebra
 
+using KernelFunctions, Distances
+
 using ForwardDiff
 using Tracker
 
@@ -75,6 +77,10 @@ function __init__()
             return out
         end
     end
+    @require Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0" begin
+        include("turingmodels.jl")
+    end
+
 end
 
 export

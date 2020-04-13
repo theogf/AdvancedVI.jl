@@ -4,6 +4,7 @@ version = "0.1.0"
 
 [deps]
 Bijectors = "76274a88-744f-5084-9051-94815aaf08c4"
+Distances = "b4f34e82-e78d-54a5-968a-f98e89d6e8f7"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 DistributionsAD = "ced4e74d-a319-5a8a-b0ac-84af2272839c"
 DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
@@ -22,16 +23,21 @@ Bijectors = "0.4.0, 0.5, 0.6"
 Distributions = "0.21, 0.22, 0.23"
 DistributionsAD = "0.2, 0.3, 0.4"
 ForwardDiff = "0.10.3"
+KernelFunctions = "0.3"
 ProgressMeter = "1.0.0"
 Requires = "0.5, 1.0"
 StatsBase = "0.32"
 StatsFuns = "0.8, 0.9"
 Tracker = "0.2.3"
+Turing = "0.9"
 julia = "1"
 
 [extras]
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [targets]
 test = ["Pkg", "Test"]

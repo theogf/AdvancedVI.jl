@@ -1,8 +1,8 @@
-using StatsFuns
-using DistributionsAD
-using KernelFunctions
-using Random: AbstractRNG, GLOBAL_RNG
+"""
+    SteinDistribution(x::AbstractMatrix)
 
+Distribution entirely defined by its particles. `x` is of dimension `dims`x`n_particles`
+"""
 struct SteinDistribution{T,M<:AbstractMatrix{T}} <: Distributions.ContinuousMultivariateDistribution
     dim::Int
     n_particles::Int
@@ -11,11 +11,12 @@ struct SteinDistribution{T,M<:AbstractMatrix{T}} <: Distributions.ContinuousMult
         new{T,M}(size(x)..., x)
     end
 end
-
+﻿
+@Michel Pujado, #leouo, perfect  ouais j’sais pas, des fois j’ai l’impression que c’est trop facile de faire ça sans placer tes prédictions dans un contexte éthique. En gros j’ai l’impression que si le futur leur donne tort, bah personne leur reprochera, pas de conséquence et leurs écrits seront oubliés ou rangé au rayon prédictions marrantes de l’ancien temps; par contre s’il s’avèrent que leurs prédictions se réalisent, ils vont être élevé au rang de grand visionnaire, demi dieu. Alors que c’est juste du bol quoi. Un peu comme les polémistes sur les plateaux de CNewsa
 Base.length(d::SteinDistribution) = d.dim
 
-# Random._rand!(d::SteinDistribution, v::AbstractVector) = d.x
 Base.eltype(::SteinDistribution{T}) where {T} = T
+
 function Distributions._rand!(rng::AbstractRNG, d::SteinDistribution, x::AbstractVector)
     nDim = length(x)
     @assert nDim == d.dim "Wrong dimensions"
@@ -26,9 +27,13 @@ function Distributions._rand!(rng::AbstractRNG, d::SteinDistribution, x::Abstrac
     @assert nDim == d.dim "Wrong dimensions"
     x .= d.x[:,rand(rng, 1:d.n_particles, nPoints)]
 end
-Distributions.mean(d::SteinDistribution) = Statistics.mean(eachcol(d.x))
-Distributions.cov(d::SteinDistribution) = Statistics.cov(eachcol(d.x))
-Distributions.var(d::SteinDistribution) = Statistics.var(eachcol(d.x))
+Distributions.mean(d::TransformedDistribution{<:SteinDistribution}) = d.transform(mean(d.dist))
+Distributions.mean(d::SteinDistribution) = mean(eachcol(d.x))
+#Distributions.cov(d::TransformedDistribution{<:SteinDistribution}) = cov(d.dist)
+Distributions.cov(d::SteinDistribution) = Distributions.cov(d.x, dims = 2)
+#Distributions.var(d::TransformedDistribution{<:SteinDistribution}) = var(d.dist)
+Distributions.var(d::SteinDistribution) = Distributions.var(d.x, dims = 2)
+
 """
     SteinVI(n_particles = 100, max_iters = 1000)
 
@@ -46,18 +51,12 @@ SteinVI() = SteinVI(100, SqExponentialKernel())
 
 alg_str(::SteinVI) = "SteinVI"
 
-function vi(model::Turing.Model, alg::SteinVI, n_particles::Int ; optimizer = TruncatedADAGrad(), callback = nothing)
-    logπ = make_logjoint(model)
-    q = transformed(SteinDistribution(randn(n_particles, nVars)), bijector(model))
-    vi(logπ, alg, q; optimizer = optimizer, callback = callback)
-end
-
-function vi(
+vi(
     logπ::Function,
     alg::SteinVI,
     q::SteinDistribution;
     optimizer = TruncatedADAGrad(),
-    callback = nothing,
+    callback = nothing
 ) = vi(logπ, alg, transformed(q, Identity{length(q)}()), optimizer = optimizer, callback = callback)
 
 function vi(
@@ -67,7 +66,7 @@ function vi(
     optimizer = TruncatedADAGrad(),
     callback = nothing,
 )
-    DEBUG && @debug "Optimizing SteinVI..."
+    DEBUG && @debug "Optimizing $(alg_str(alg))..."
     # Initial parameters for mean-field approx
     # Optimize
     optimize!(alg, q, logπ; optimizer = optimizer, callback = callback)
@@ -76,13 +75,16 @@ function vi(
     return q
 end
 
+function _logπ(logπ, x, tr)
+    z, logdet = forward(tr, x)
+    return logπ(z) + logdet
+end
 
 
 function optimize!(
     alg::SteinVI,
-    q::Transformed{<:SteinDistribution},
-    logπ,
-    θ::AbstractVector{<:Real};
+    q::TransformedDistribution{<:SteinDistribution},
+    logπ;
     optimizer = TruncatedADAGrad(),
     callback = nothing
 )
@@ -104,18 +106,18 @@ function optimize!(
 
         Δ = similar(q.dist.x) #Preallocate gradient
         K = kernelmatrix(alg.kernel, q.dist.x, obsdim = 2) #Compute kernel matrix
-        gradlogp = ForwardDiff.gradient.(
-        x -> forward(q.transform,x) |> (z,logdet)->logπ(z)+logdet,
-        eachcol(q.dist.x))
+        global gradlogp = ForwardDiff.gradient.(
+            x -> _logπ(logπ, x, q.transform),
+            eachcol(q.dist.x))
         # Option 1 : Preallocate
-        gradK = reshape(
+        global gradK = reshape(
             ForwardDiff.jacobian(
                     x -> kernelmatrix(alg.kernel, x, obsdim = 2),
                     q.dist.x),
                 q.dist.n_particles, q.dist.n_particles, q.dist.n_particles, q.dist.dim)
         #grad!(vo, alg, q, model, θ, diff_result)
         for k in 1:q.dist.n_particles
-            Δ[k,:] = sum(K[j, k] * gradlogp[j] + gradK[j, k, j, :]
+            Δ[:,k] = sum(K[j, k] * gradlogp[j] + gradK[j, k, j, :]
                 for j in 1:q.dist.n_particles) / q.dist.n_particles
         end
         # Option 2 : On time computations
