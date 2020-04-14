@@ -90,7 +90,7 @@ export
     elbo,
     TruncatedADAGrad,
     DecayedADAGrad,
-    VariationalInference
+    VariationalInference,
     SteinVI,
     SteinDistribution,
     SamplesMvNormal,
@@ -250,5 +250,6 @@ include("optimisers.jl")
 include("advi.jl")
 include("steinvi.jl")
 include("gausspartflow.jl")
+include("utils.jl")
 
 end # module

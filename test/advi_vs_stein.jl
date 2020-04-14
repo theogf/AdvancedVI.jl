@@ -5,7 +5,7 @@ using Makie, StatsMakie, Colors, MakieLayout
 using KernelFunctions, Flux, KernelDensity
 
 mu1 = -2.0;
-mu2 = 2.0
+mu2 = 3.0
 mu_init = -10.0
 sig_init = 1.0
 d1 = Normal(mu1)
@@ -27,7 +27,7 @@ end
 m = model(x)
 Turing.VarInfo(model).metadata
 
-nParticles = 100
+nParticles = 20
 max_iters = 2
 
 
@@ -37,23 +37,22 @@ advi = AVI.ADVI(nParticles, max_iters)
 θ_init = [mu_init,sig_init]
 adq = AVI.transformed(TuringDiagMvNormal([mu_init],[sig_init]),AVI.Bijectors.Identity{1}())
 
+steinvi = AVI.SteinVI(max_iters, transform(SqExponentialKernel(), 1.0))
+steinq =
+    AVI.SteinDistribution(rand(Normal(mu_init, sqrt(sig_init)), 1, nParticles))
 
+gaussvi = AVI.PFlowVI(max_iters, false, true)
+gaussq = SamplesMvNormal(rand(Normal(mu_init, sqrt(sig_init)),1,nParticles))
+# gaussq = AVI.transformed(SamplesMvNormal(rand(Normal(mu_init, sqrt(sig_init)),1,nParticles)),AVI.Bijectors.Identity{1}())
 
-steinvi = AVI.SteinVI{AVI.TrackerAD}(max_iters, transform(SqExponentialKernel(), 1.0))
-steinq = AVI.SteinDistribution(rand(Normal(mu_init, sqrt(sig_init)),nParticles,1))
-
-gaussvi = AVI.PFlowVI(max_iters, false, false)
-gaussq = AVI.transformed(SamplesMvNormal(rand(Normal(mu_init, sqrt(sig_init)),1,nParticles)),AVI.Bijectors.Identity{1}())
-
-# logπ = Turing.Variational.make_logjoint(m)
 setadbackend(:reverse_diff)
 logπ_base(x) = log(1/3*pdf(d1,first(x)) + 2/3*pdf(d2,first(x)))
 
-α = 1.0
+α =  1.0
 optad = ADAGrad(α)
-# optad = Flux.Optimiser(InvDecay(0.1),ADAGrad(α))
 optstein = ADAGrad(α)
 optgauss = ADAGrad(α)
+
 t = Node(0)
 pdfad = lift(t) do t
     adqn = Normal((AVI.params(adq.dist) |> x -> (first(x[1]),sqrt(first(x[2]))))...)
@@ -64,20 +63,25 @@ pdfstein = lift(t) do t
     pdfstein = pdf.(Ref(steinqn),xrange)
 end
 pdfgauss = lift(t) do t
-    gaussqn = Normal(gaussq.dist.μ[1],sqrt(gaussq.dist.Σ[1,1]))
+    gaussqn = Normal(gaussq.μ[1],sqrt(gaussq.Σ[1,1]))
     pdfgauss = pdf.(Ref(gaussqn),xrange)
+end
+gaussxs = lift(t) do t
+    gaussq.x[:]
 end
 
 ls = [plot!(ax,xrange,pdf.(Ref(d),xrange),color=:red, linewidth=7.0),
     plot!(ax,xrange, pdfad, linewidth = 3.0, color = :green),
     plot!(ax,xrange, pdfstein, linewidth = 3.0, color = :blue),
-    # plot!(ax,xrange, pdfgauss, linewidth = 3.0, color = :purple)
+    plot!(ax,xrange, pdfgauss, linewidth = 3.0, color = :purple),
     ]
+scatter!(ax, gaussxs, zeros(gaussq.n_particles), msize = 1.0)
+scene
 leg = layout[1,1] = LLegend(scene,ls,
                     ["p(x)",
                     "ADVI",
                     "Stein VI",
-                    # "Gaussian Particles"
+                    "Gaussian Particles",
                     ],
                     width=Auto(false),height=Auto(false),
                     halign = :left, valign = :top, margin = (10,10,10,10))
@@ -85,9 +89,8 @@ leg = layout[1,1] = LLegend(scene,ls,
 record(scene,joinpath(@__DIR__,"path_particles_ad_vs_steinflow.gif"),framerate=25) do io
     for i in 1:500
         global adq = AVI.vi(logπ_base, advi, adq, θ_init, optimizer = optad)
-        # global adq = Turing.Variational.vi(logπ_base, advi, adq, optimizer = optad)
         AVI.vi(logπ_base, steinvi, steinq, optimizer = optstein)
-        # AVI.vi(logπ_base, gaussvi, gaussq, optimizer = optgauss)
+        AVI.vi(logπ_base, gaussvi, gaussq, optimizer = optgauss)
         t[] = i
         recordframe!(io)
     end

@@ -12,7 +12,6 @@ struct SteinDistribution{T,M<:AbstractMatrix{T}} <: Distributions.ContinuousMult
     end
 end
 ﻿
-@Michel Pujado, #leouo, perfect  ouais j’sais pas, des fois j’ai l’impression que c’est trop facile de faire ça sans placer tes prédictions dans un contexte éthique. En gros j’ai l’impression que si le futur leur donne tort, bah personne leur reprochera, pas de conséquence et leurs écrits seront oubliés ou rangé au rayon prédictions marrantes de l’ancien temps; par contre s’il s’avèrent que leurs prédictions se réalisent, ils vont être élevé au rang de grand visionnaire, demi dieu. Alors que c’est juste du bol quoi. Un peu comme les polémistes sur les plateaux de CNewsa
 Base.length(d::SteinDistribution) = d.dim
 
 Base.eltype(::SteinDistribution{T}) where {T} = T
@@ -93,7 +92,7 @@ function optimize!(
 
     # diff_result = DiffResults.GradientResult(θ)
     alg.kernel.transform.s .= log(q.dist.n_particles) / sqrt( 0.5 * median(
-    pairwise(SqEuclidean(), q.dist.x, dims = 1)))
+    pairwise(SqEuclidean(), q.dist.x, dims = 2)))
 
     i = 0
     prog = if PROGRESS[]
@@ -104,9 +103,9 @@ function optimize!(
 
     time_elapsed = @elapsed while (i < max_iters) # & converged
 
-        Δ = similar(q.dist.x) #Preallocate gradient
+        global Δ = similar(q.dist.x) #Preallocate gradient
         K = kernelmatrix(alg.kernel, q.dist.x, obsdim = 2) #Compute kernel matrix
-        global gradlogp = ForwardDiff.gradient.(
+        gradlogp = ForwardDiff.gradient.(
             x -> _logπ(logπ, x, q.transform),
             eachcol(q.dist.x))
         # Option 1 : Preallocate

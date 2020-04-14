@@ -58,13 +58,17 @@ PFlowVI() = PFlowVI(100, true, false)
 
 alg_str(::PFlowVI) = "PFlowVI"
 
-function vi(model::Turing.Model, alg::PFlowVI, n_particles::Int ; optimizer = TruncatedADAGrad(), callback = nothing)
-    q = transformed(SamplesMvNormal(randn(n_particles, nVars)),bijector(model))
-    logπ = make_logjoint(model)
-    vi(logπ, alg, q; optimizer = optimizer, callback = callback)
+function vi(logπ::Function, alg::PFlowVI, q::SampMvNormal; optimizer = TruncatedADAGrad(), callback = nothing)
+    DEBUG && @debug "Optimizing $(alg_str(alg))..."
+    # Initial parameters for mean-field approx
+    # Optimize
+    optimize!(alg, transformed(q, Identity{length(q)}()), logπ, [0.0]; optimizer = optimizer, callback = callback)
+
+    # Return updated `Distribution`
+    return q
 end
 
-function vi(logπ::Function, alg::PFlowVI, q::SampMvNormal; optimizer = TruncatedADAGrad(), callback = nothing)
+function vi(logπ::Function, alg::PFlowVI, q::TransformedDistribution{SampMvNormal}; optimizer = TruncatedADAGrad(), callback = nothing)
     DEBUG && @debug "Optimizing $(alg_str(alg))..."
     # Initial parameters for mean-field approx
     # Optimize
@@ -74,8 +78,9 @@ function vi(logπ::Function, alg::PFlowVI, q::SampMvNormal; optimizer = Truncate
     return q
 end
 
+
 function phi(q::TransformedDistribution, z, logπ)
-    (w,detJ) = forward(q.transform, z)
+    (w, detJ) = forward(q.transform, z)
     return - logπ(w) - detJ
 end
 
@@ -131,7 +136,7 @@ function optimize!(
         update_q!(q.dist)
 
         if !isnothing(callback)
-            callback(q,i)
+            callback(q, i)
         end
         AdvancedVI.DEBUG && @debug "Step $i" Δ
         PROGRESS[] && (ProgressMeter.next!(prog))
