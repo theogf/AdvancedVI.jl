@@ -58,17 +58,17 @@ PFlowVI() = PFlowVI(100, true, false)
 
 alg_str(::PFlowVI) = "PFlowVI"
 
-function vi(logπ::Function, alg::PFlowVI, q::SampMvNormal; optimizer = TruncatedADAGrad(), callback = nothing)
+function vi(logπ::Function, alg::PFlowVI, q::SamplesMvNormal; optimizer = TruncatedADAGrad(), callback = nothing)
     DEBUG && @debug "Optimizing $(alg_str(alg))..."
     # Initial parameters for mean-field approx
     # Optimize
-    optimize!(alg, transformed(q, Identity{length(q)}()), logπ, [0.0]; optimizer = optimizer, callback = callback)
+    optimize!(alg, transformed(q, Identity{1}()), logπ, [0.0]; optimizer = optimizer, callback = callback)
 
     # Return updated `Distribution`
     return q
 end
 
-function vi(logπ::Function, alg::PFlowVI, q::TransformedDistribution{SampMvNormal}; optimizer = TruncatedADAGrad(), callback = nothing)
+function vi(logπ::Function, alg::PFlowVI, q::TransformedDistribution{<:SamplesMvNormal}; optimizer = TruncatedADAGrad(), callback = nothing)
     DEBUG && @debug "Optimizing $(alg_str(alg))..."
     # Initial parameters for mean-field approx
     # Optimize
