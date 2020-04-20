@@ -28,6 +28,8 @@ end
 
 alg_str(::ADVI) = "ADVI"
 
+nSamples(alg::ADVI) = alg.samples_per_step
+
 function vi(model, alg::ADVI, q, θ_init; optimizer = TruncatedADAGrad())
     θ = copy(θ_init)
     optimize!(elbo, alg, q, model, θ; optimizer = optimizer)
@@ -90,7 +92,7 @@ function (elbo::ELBO)(
     else
         res += entropy(q)
     end
-    
+
     for i = 2:num_samples
         _, z, logjac, _ = forward(rng, q)
         res += (logπ(z) + logjac) / num_samples
