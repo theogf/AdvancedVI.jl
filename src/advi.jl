@@ -28,6 +28,8 @@ end
 
 alg_str(::ADVI) = "ADVI"
 
+nSamples(alg::ADVI) = alg.samples_per_step
+
 function vi(model, alg::ADVI, q, θ_init; optimizer = TruncatedADAGrad(), callback = nothing)
     θ = copy(θ_init)
     optimize!(elbo, alg, q, model, θ_init; optimizer = optimizer, callback = callback)

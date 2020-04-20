@@ -3,6 +3,7 @@ module AdvancedVI
 using Random: AbstractRNG
 
 using Distributions, DistributionsAD, Bijectors
+using FastGaussQuadrature
 using DocStringExtensions
 
 using ProgressMeter, LinearAlgebra
@@ -86,6 +87,7 @@ end
 export
     vi,
     ADVI,
+    ADQuadVI,
     ELBO,
     elbo,
     TruncatedADAGrad,
@@ -198,7 +200,7 @@ function optimize!(
 )
     # TODO: should we always assume `samples_per_step` and `max_iters` for all algos?
     alg_name = alg_str(alg)
-    samples_per_step = alg.samples_per_step
+    samples_per_step = nSamples(alg)
     max_iters = alg.max_iters
 
     num_params = length(θ)
@@ -251,5 +253,7 @@ include("advi.jl")
 include("steinvi.jl")
 include("gausspartflow.jl")
 include("utils.jl")
+
+include("adquadvi.jl")
 
 end # module
