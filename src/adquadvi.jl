@@ -18,7 +18,7 @@ struct ADQuadVI{AD, T} <: VariationalInference{AD}
 end
 
 function ADQuadVI(nPoints::Int=100, max_iters::Int=1000)
-    return ADQuadVI{ADBackend()}(nPoints, gausshermite(nPoints)..., max_iters)
+    return ADQuadVI{ADBackend(), Float64}(nPoints, gausshermite(nPoints)..., max_iters)
 end
 
 alg_str(::ADQuadVI) = "ADQuadVI"
@@ -56,11 +56,14 @@ function (elbo::ELBO)(
     logπ::Function,
     num_samples
 )
-    @assert length(mean(q.dist)) == 1
-    μ, σ² = first(mean(q.dist)), first(cov(q.dist))
-    xs = alg.nodes*sqrt(σ²) .+ μ
-    res = sum((x,w) -> _eval_logπ(q.transform, x)*w for (x,w) in zip(xs, alg.weights))
-
+    μ, σ² = params(q.dist)
+    @assert length(μ) == 1
+    xs = alg.nodes.*sqrt.(σ²) .+ μ
+    # res = sum((x,w) -> _eval_logπ(q.transform, x)*w for (x,w) in zip(xs, alg.weights))
+    res = _eval_logπ(q.transform, logπ, xs[1])*alg.weights[1]
+    for i in 2:num_samples
+        res += _eval_logπ(q.transform, logπ, xs[i])*alg.weights[i]
+    end
     if q isa TransformedDistribution
         res += entropy(q.dist)
     else
@@ -70,7 +73,7 @@ function (elbo::ELBO)(
     return res
 end
 
-function _eval_logπ(t, x)
+function _eval_logπ(t, logπ, x)
     z, logjac = forward(t, x)
     (logπ(z) + logjac)
 end

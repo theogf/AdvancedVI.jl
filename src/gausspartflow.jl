@@ -88,6 +88,8 @@ function phi(q::Distribution, z, logπ)
     - logπ(z)
 end
 
+isiterable(x) = hasmethod(length, x)
+
 function optimize!(
     alg::PFlowVI,
     q::SampMvNormal,
@@ -98,6 +100,13 @@ function optimize!(
 )
     alg_name = alg_str(alg)
     max_iters = alg.max_iters
+
+    optimizer = if isiterable(optimizer)
+        length(optimizer) == 2 || error("Optimizer should be of size 2 only")
+        optimizer
+    else
+        fill(optimizer, 2)
+    end
 
     # diff_result = DiffResults.GradientResult(θ)
 
@@ -129,8 +138,8 @@ function optimize!(
         end
 
         # apply update rule
-        Δ₁ = apply!(optimizer, q.dist.μ, Δ₁)
-        Δ₂ = apply!(optimizer, q.dist.x, Δ₂)
+        Δ₁ = apply!(optimizer[1], q.dist.μ, Δ₁)
+        Δ₂ = apply!(optimizer[2], q.dist.x, Δ₂)
         @. q.dist.x = q.dist.x - Δ₁ - Δ₂
 
         update_q!(q.dist)
