@@ -56,7 +56,7 @@ vi(
     q::SteinDistribution;
     optimizer = TruncatedADAGrad(),
     callback = nothing
-) = vi(logπ, alg, transformed(q, Identity{length(q)}()), optimizer = optimizer, callback = callback)
+) = vi(logπ, alg, transformed(q, Identity{1}()), optimizer = optimizer, callback = callback)
 
 function vi(
     logπ::Function,
