@@ -103,29 +103,32 @@ function optimize!(
 
     time_elapsed = @elapsed while (i < max_iters) # & converged
 
-        global Δ = similar(q.dist.x) #Preallocate gradient
+        Δ = similar(q.dist.x) #Preallocate gradient
         K = kernelmatrix(alg.kernel, q.dist.x, obsdim = 2) #Compute kernel matrix
         gradlogp = ForwardDiff.gradient.(
             x -> _logπ(logπ, x, q.transform),
             eachcol(q.dist.x))
         # Option 1 : Preallocate
-        global gradK = reshape(
-            ForwardDiff.jacobian(
-                    x -> kernelmatrix(alg.kernel, x, obsdim = 2),
-                    q.dist.x),
-                q.dist.n_particles, q.dist.n_particles, q.dist.n_particles, q.dist.dim)
-        #grad!(vo, alg, q, model, θ, diff_result)
-        for k in 1:q.dist.n_particles
-            Δ[:,k] = sum(K[j, k] * gradlogp[j] + gradK[j, k, j, :]
-                for j in 1:q.dist.n_particles) / q.dist.n_particles
-        end
-        # Option 2 : On time computations
-        # for k in 1:q.n_particles
-        #     Δ[k,:] = sum(
-        #         K[j, k] * gradlogp[j] +
-        #         ForwardDiff.gradient(x->KernelFunctions.kappa(alg.kernel,q.x[j,:],x), q.x[k,:])
-        #         for j in 1:q.n_particles) / q.n_particles
+        # global gradK = reshape(
+        #     ForwardDiff.jacobian(
+        #             x -> kernelmatrix(alg.kernel, x, obsdim = 2),
+        #             q.dist.x),
+        #         q.dist.n_particles, q.dist.n_particles, q.dist.n_particles, q.dist.dim)
+        # #grad!(vo, alg, q, model, θ, diff_result)
+        # for k in 1:q.dist.n_particles
+        #     Δ[:, k] = sum(K[j, k] * gradlogp[j] + gradK[j, k, j, :]
+        #         for j in 1:q.dist.n_particles) / q.dist.n_particles
         # end
+        # Option 2 : On time computations
+        for k = 1:q.dist.n_particles
+            Δ[:, k] =
+                sum(
+                    K[j, k] * gradlogp[j] + ForwardDiff.gradient(
+                        x -> KernelFunctions.kappa(alg.kernel, q.dist.x[:, j], x),
+                        q.dist.x[:, k],
+                    ) for j = 1:q.dist.n_particles
+                ) / q.dist.n_particles
+        end
 
 
         # apply update rule

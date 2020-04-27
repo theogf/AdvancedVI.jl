@@ -82,6 +82,7 @@ function vi(
     # Initial parameters for mean-field approx
     # Optimize
     optimize!(
+        elbo,
         alg,
         transformed(q, Identity{1}()),
         logπ,
@@ -145,13 +146,13 @@ function optimize!(
     θ::AbstractVector{<:Real};
     optimizer = TruncatedADAGrad(),
     callback = nothing,
-    hyperparameters = nothing,
+    hyperparams = nothing,
     hp_optimizer = nothing
 )
     alg_name = alg_str(alg)
     max_iters = alg.max_iters
 
-    optimizer = if Base.isiterable(optimizer)
+    optimizer = if Base.isiterable(typeof(optimizer))
         length(optimizer) == 2 || error("Optimizer should be of size 2 only")
         optimizer
     else
@@ -169,14 +170,14 @@ function optimize!(
 
     time_elapsed = @elapsed while (i < max_iters) # & converged
 
-        logπ = if !isnothing(hyperparameters)
-            logπ(hyperparameters)
+        _logπ = if !isnothing(hyperparams)
+            logπ(hyperparams)
         else
             logπ
         end
 
         g = mapslices(
-            x -> ForwardDiff.gradient(z -> phi(q, z, logπ), x),
+            x -> ForwardDiff.gradient(z -> phi(q, z, _logπ), x),
             q.dist.x,
             dims = 1,
         )
@@ -204,10 +205,10 @@ function optimize!(
 
         update_q!(q.dist)
 
-        if !isnothing(hyperparameters)
-            Δ = hp_grad(vo, alg, q, logπ, θ, hyperparameters)
-            Δ = apply!(hp_optimizer, hyperparameters, Δ)
-            hyperparameters .+= Δ
+        if !isnothing(hyperparams)
+            Δ = hp_grad(vo, alg, q, logπ, θ, hyperparams)
+            Δ = apply!(hp_optimizer, hyperparams, Δ)
+            hyperparams .+= Δ
         end
 
         if !isnothing(callback)
@@ -222,19 +223,18 @@ function optimize!(
     return q
 end
 
-function hp_grad(vo, alg, q, model, θ, hyperparameters)
-    ForwardDiff.gradient(x -> vo(alg, q, logπ(x), θ), hyperparameters)
+function hp_grad(vo, alg, q, logπ, θ, hyperparameters)
+    ForwardDiff.gradient(x -> vo(alg, q, logπ(x)), hyperparameters)
 end
 
 function (elbo::ELBO)(
     rng::AbstractRNG,
     alg::PFlowVI,
     q::TransformedDistribution{<:SamplesMvNormal},
-    logπ::Function,
-    hyperparameters
+    logπ::Function
 )
 
-    res = mapreduce(x -> phi(q, x, logπ, hyperparameters), +, q.dist.x, dims = 1)
+    res = sum(mapslices(x -> phi(q, x, logπ), q.dist.x, dims = 1))
 
     if q isa TransformedDistribution
         res += entropy(q.dist)
