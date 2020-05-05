@@ -30,9 +30,9 @@ alg_str(::ADVI) = "ADVI"
 
 nSamples(alg::ADVI) = alg.samples_per_step
 
-function vi(model, alg::ADVI, q, θ_init; optimizer = TruncatedADAGrad(), callback = nothing)
+function vi(model, alg::ADVI, q, θ_init; optimizer = TruncatedADAGrad(), callback = nothing, hyperparams = nothing, hp_optimizer = nothing)
     θ = copy(θ_init)
-    optimize!(elbo, alg, q, model, θ_init; optimizer = optimizer, callback = callback)
+    optimize!(elbo, alg, q, model, θ_init; optimizer = optimizer, callback = callback, hyperparams = hyperparams, hp_optimizer = hp_optimizer)
 
     # If `q` is a mean-field approx we use the specialized `update` function
     if q isa Distribution
@@ -44,11 +44,11 @@ function vi(model, alg::ADVI, q, θ_init; optimizer = TruncatedADAGrad(), callba
 end
 
 
-function optimize(elbo::ELBO, alg::ADVI, q, model, θ_init; optimizer = TruncatedADAGrad(), callback = nothing)
+function optimize(elbo::ELBO, alg::ADVI, q, model, θ_init; optimizer = TruncatedADAGrad(), callback = nothing, hyperparams = nothing, hp_optimizer = nothing)
     θ = copy(θ_init)
 
     # `model` assumed to be callable z ↦ p(x, z)
-    optimize!(elbo, alg, q, model, θ; optimizer = optimizer, callback = callback)
+    optimize!(elbo, alg, q, model, θ; optimizer = optimizer, callback = callback, hyperparams = hyperparams, hp_optimizer = hp_optimizer)
 
     return θ
 end

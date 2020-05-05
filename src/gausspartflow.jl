@@ -125,18 +125,7 @@ function vi(
     return q
 end
 
-function phi(q::Union{TransformedDistribution, Distribution}, z, logπ)
-    phi(q, z, logπ)
-end
-
-function phi(q::TransformedDistribution, z, logπ)
-    (w, detJ) = forward(q.transform, z)
-    return -logπ(w) - detJ
-end
-
-function phi(q::Distribution, z, logπ)
-    -logπ(z)
-end
+phi(logπ, q, x) = -eval_logπ(logπ, q, x)
 
 function optimize!(
     vo,
@@ -177,7 +166,7 @@ function optimize!(
         end
 
         g = mapslices(
-            x -> ForwardDiff.gradient(z -> phi(q, z, _logπ), x),
+            x -> ForwardDiff.gradient(z -> phi(_logπ, q, z), x),
             q.dist.x,
             dims = 1,
         )
@@ -205,8 +194,8 @@ function optimize!(
 
         update_q!(q.dist)
 
-        if !isnothing(hyperparams)
-            Δ = hp_grad(vo, alg, q, logπ, θ, hyperparams)
+        if !isnothing(hyperparams) && !isnothing(hp_optimizer)
+            Δ = hp_grad(vo, alg, q, logπ, hyperparams)
             Δ = apply!(hp_optimizer, hyperparams, Δ)
             hyperparams .+= Δ
         end
@@ -223,10 +212,6 @@ function optimize!(
     return q
 end
 
-function hp_grad(vo, alg, q, logπ, θ, hyperparameters)
-    ForwardDiff.gradient(x -> vo(alg, q, logπ(x)), hyperparameters)
-end
-
 function (elbo::ELBO)(
     rng::AbstractRNG,
     alg::PFlowVI,
@@ -234,7 +219,7 @@ function (elbo::ELBO)(
     logπ::Function
 )
 
-    res = sum(mapslices(x -> phi(q, x, logπ), q.dist.x, dims = 1))
+    res = sum(mapslices(x -> -phi(logπ, q, x), q.dist.x, dims = 1))
 
     if q isa TransformedDistribution
         res += entropy(q.dist)

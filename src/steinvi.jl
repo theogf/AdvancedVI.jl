@@ -1,7 +1,7 @@
 """
     SteinDistribution(x::AbstractMatrix)
 
-Distribution entirely defined by its particles. `x` is of dimension `dims`x`n_particles`
+Distribution entirely defined by its particles. `x` is of dimension `dims` x `n_particles`
 """
 struct SteinDistribution{T,M<:AbstractMatrix{T}} <: Distributions.ContinuousMultivariateDistribution
     dim::Int
@@ -32,6 +32,8 @@ Distributions.mean(d::SteinDistribution) = mean(eachcol(d.x))
 Distributions.cov(d::SteinDistribution) = Distributions.cov(d.x, dims = 2)
 #Distributions.var(d::TransformedDistribution{<:SteinDistribution}) = var(d.dist)
 Distributions.var(d::SteinDistribution) = Distributions.var(d.x, dims = 2)
+Distributions.entropy(d::SteinDistribution) = zero(eltype(d)) # Not valid but does not matter for the optimization
+
 
 """
     SteinVI(n_particles = 100, max_iters = 1000)
@@ -55,8 +57,18 @@ vi(
     alg::SteinVI,
     q::SteinDistribution;
     optimizer = TruncatedADAGrad(),
-    callback = nothing
-) = vi(logπ, alg, transformed(q, Identity{1}()), optimizer = optimizer, callback = callback)
+    callback = nothing,
+    hyperparams = nothing,
+    hp_optimizer = nothing,
+) = vi(
+    logπ,
+    alg,
+    transformed(q, Identity{1}()),
+    optimizer = optimizer,
+    callback = callback,
+    hyperparams = hyperparams,
+    hp_optimizer = hp_optimizer,
+)
 
 function vi(
     logπ::Function,
@@ -64,12 +76,22 @@ function vi(
     q::TransformedDistribution{<:SteinDistribution};
     optimizer = TruncatedADAGrad(),
     callback = nothing,
+    hyperparams = nothing,
+    hp_optimizer = nothing,
 )
     DEBUG && @debug "Optimizing $(alg_str(alg))..."
     # Initial parameters for mean-field approx
     # Optimize
-    optimize!(alg, q, logπ; optimizer = optimizer, callback = callback)
-
+    optimize!(
+        elbo,
+        alg,
+        q,
+        logπ;
+        optimizer = optimizer,
+        callback = callback,
+        hyperparams = hyperparams,
+        hp_optimizer = hp_optimizer,
+    )
     # Return updated `Distribution`
     return q
 end
@@ -81,11 +103,14 @@ end
 
 
 function optimize!(
+    vo,
     alg::SteinVI,
     q::TransformedDistribution{<:SteinDistribution},
     logπ;
     optimizer = TruncatedADAGrad(),
-    callback = nothing
+    callback = nothing,
+    hyperparams = nothing,
+    hp_optimizer = nothing
 )
     alg_name = alg_str(alg)
     max_iters = alg.max_iters
@@ -103,10 +128,16 @@ function optimize!(
 
     time_elapsed = @elapsed while (i < max_iters) # & converged
 
+        logπbase = if !isnothing(hyperparams)
+            logπ(hyperparams)
+        else
+            logπ
+        end
+
         Δ = similar(q.dist.x) #Preallocate gradient
         K = kernelmatrix(alg.kernel, q.dist.x, obsdim = 2) #Compute kernel matrix
         gradlogp = ForwardDiff.gradient.(
-            x -> _logπ(logπ, x, q.transform),
+            x -> eval_logπ(logπbase, q, x),
             eachcol(q.dist.x))
         # Option 1 : Preallocate
         # global gradK = reshape(
@@ -124,7 +155,7 @@ function optimize!(
             Δ[:, k] =
                 sum(
                     K[j, k] * gradlogp[j] + ForwardDiff.gradient(
-                        x -> KernelFunctions.kappa(alg.kernel, q.dist.x[:, j], x),
+                        x -> alg.kernel(q.dist.x[:, j], x),
                         q.dist.x[:, k],
                     ) for j = 1:q.dist.n_particles
                 ) / q.dist.n_particles
@@ -139,6 +170,12 @@ function optimize!(
             log(q.dist.n_particles) / sqrt( 0.5 * median(
             pairwise(SqEuclidean(), q.dist.x, dims = 2)))
 
+        if !isnothing(hyperparams) && !isnothing(hp_optimizer)
+            Δ = hp_grad(vo, alg, q, logπ, hyperparams)
+            Δ = apply!(hp_optimizer, hyperparams, Δ)
+            hyperparams .+= Δ
+        end
+
         if !isnothing(callback)
             callback(q,i)
         end
@@ -149,4 +186,21 @@ function optimize!(
     end
 
     return q
+end
+
+function (elbo::ELBO)(
+    rng::AbstractRNG,
+    alg::SteinVI,
+    q::TransformedDistribution{<:SteinDistribution},
+    logπ::Function
+)
+
+    res = sum(mapslices(x -> eval_logπ(logπ, q, x), q.dist.x, dims = 1))
+
+    if q isa TransformedDistribution
+        res += entropy(q.dist)
+    else
+        res += entropy(q)
+    end
+    return res
 end

@@ -56,13 +56,12 @@ function (elbo::ELBO)(
     logπ::Function,
     num_samples
 )
-    μ, σ² = params(q.dist)
-    @assert length(μ) == 1
-    xs = alg.nodes.*sqrt.(σ²) .+ μ
+    μ, σ² = get_diag_params(q)
+    xs = [n * sqrt.(σ²) .+ μ for n in alg.nodes]
     # res = sum((x,w) -> _eval_logπ(q.transform, x)*w for (x,w) in zip(xs, alg.weights))
-    res = _eval_logπ(q.transform, logπ, xs[1])*alg.weights[1]
+    res = eval_logπ(logπ, q.transform, xs[1]) * alg.weights[1]
     for i in 2:num_samples
-        res += _eval_logπ(q.transform, logπ, xs[i])*alg.weights[i]
+        res += eval_logπ(logπ, q.transform, xs[i]) * alg.weights[i]
     end
     if q isa TransformedDistribution
         res += entropy(q.dist)
@@ -73,7 +72,10 @@ function (elbo::ELBO)(
     return res
 end
 
-function _eval_logπ(t, logπ, x)
-    z, logjac = forward(t, x)
-    (logπ(z) + logjac)
+Distributions.params(d::TuringDenseMvNormal) = d.m, d.C
+get_diag_params(q::TransformedDistribution) = get_diag_params(q.dist)
+function get_diag_params(q::TuringDenseMvNormal)
+    μ, L = params(q)
+    return μ, vec(sum(L.L .* L.L', dims = 2))
 end
+get_diag_params(q::TuringDiagMvNormal) = params(q)

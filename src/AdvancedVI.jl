@@ -196,7 +196,9 @@ function optimize!(
     model,
     θ::AbstractVector{<:Real};
     optimizer = TruncatedADAGrad(),
-    callback = nothing
+    callback = nothing,
+    hyperparams = nothing,
+    hp_optimizer = nothing
 )
     # TODO: should we always assume `samples_per_step` and `max_iters` for all algos?
     alg_name = alg_str(alg)
@@ -223,7 +225,14 @@ function optimize!(
 
     # add criterion? A running mean maybe?
     time_elapsed = @elapsed while (i < max_iters) # & converged
-        grad!(vo, alg, q, model, θ, diff_result, samples_per_step)
+        logπ = if isnothing(hyperparams)
+            model
+        else
+            model(hyperparams)
+
+        end
+
+        grad!(vo, alg, q, logπ, θ, diff_result, samples_per_step)
 
         # apply update rule
         Δ = DiffResults.gradient(diff_result)
@@ -232,7 +241,11 @@ function optimize!(
 
         AdvancedVI.DEBUG && @debug "Step $i" Δ DiffResults.value(diff_result)
         PROGRESS[] && (ProgressMeter.next!(prog))
-
+        if !isnothing(hyperparams) && !isnothing(hp_optimizer)
+            Δ = hp_grad(vo, alg, q, model, hyperparams, samples_per_step)
+            Δ = apply!(hp_optimizer, hyperparams, Δ)
+            hyperparams .+= Δ
+        end
         if !isnothing(callback)
             callback(q, θ, i)
         end
