@@ -46,7 +46,7 @@ end
 Distributions.mean(d::SamplesMvNormal) = d.μ
 Distributions.cov(d::SamplesMvNormal) = d.Σ
 Distributions.var(d::SamplesMvNormal) = diag(d.Σ)
-Distributions.entropy(d::SamplesMvNormal) = 0.5 * (log2π + logdet(cov(d)))
+Distributions.entropy(d::SamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
 
 const SampMvNormal =
     Union{SamplesMvNormal,TransformedDistribution{<:SamplesMvNormal}}
