@@ -224,12 +224,12 @@ function optimize!(
     end
 
     # add criterion? A running mean maybe?
-    time_elapsed = @elapsed while (i < max_iters) # & converged
+    # time_elapsed = @elapsed
+    while (i < max_iters) # & converged
         logπ = if isnothing(hyperparams)
             model
         else
             model(hyperparams)
-
         end
 
         grad!(vo, alg, q, logπ, θ, diff_result, samples_per_step)
@@ -247,7 +247,7 @@ function optimize!(
             hyperparams .+= Δ
         end
         if !isnothing(callback)
-            callback(q, θ, i)
+            callback(i, update(q, θ), hyperparams)
         end
         i += 1
     end

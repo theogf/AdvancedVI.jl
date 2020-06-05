@@ -201,7 +201,7 @@ function optimize!(
         end
 
         if !isnothing(callback)
-            callback(q, i)
+            callback(i, q, hyperparams)
         end
         AdvancedVI.DEBUG && @debug "Step $i" Δ
         PROGRESS[] && (ProgressMeter.next!(prog))
