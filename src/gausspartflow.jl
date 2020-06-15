@@ -125,6 +125,28 @@ function vi(
     return q
 end
 
+function grad!(
+    vo,
+    alg::PFlowVI{<:ForwardDiff},
+    q,
+    model,
+    θ::AbstractVector{<:Real},
+    out::DiffResults.MutableDiffResult,
+    args...
+)
+    f(x) = mapslices(
+        z -> phi(_logπ, q, z),
+        q.dist.x,
+        dims = 1,
+    )
+
+    chunk_size = getchunksize(typeof(alg))
+    # Set chunk size and do ForwardMode.
+    chunk = ForwardDiff.Chunk(min(length(q.dist.x), chunk_size))
+    config = ForwardDiff.JacobianConfig(f, q.dist.x, chunk)
+    ForwardDiff.jacobian!(out, f, q.dist.x, config)
+end
+
 phi(logπ, q, x) = -eval_logπ(logπ, q, x)
 
 function optimize!(
@@ -139,6 +161,7 @@ function optimize!(
     hp_optimizer = nothing
 )
     alg_name = alg_str(alg)
+    samples_per_step = nSamples(alg)
     max_iters = alg.max_iters
 
     optimizer = if Base.isiterable(typeof(optimizer))
@@ -148,7 +171,7 @@ function optimize!(
         fill(optimizer, 2)
     end
 
-    # diff_result = DiffResults.GradientResult(θ)
+    diff_result = DiffResults.JacobianResult(q.dist.x)
 
     i = 0
     prog = if PROGRESS[]
@@ -165,19 +188,17 @@ function optimize!(
             logπ
         end
 
-        g = mapslices(
-            x -> ForwardDiff.gradient(z -> phi(_logπ, q, z), x),
-            q.dist.x,
-            dims = 1,
-        )
+        grad!(vo, alg, q, _logπ, θ, diff_result, samples_per_step)
+
+        Δ = DiffResults.jacobian(diff_result)
 
         Δ₁ = if alg.precondΔ₁
-            q.dist.Σ * vec(mean(g, dims = 2))
+            q.dist.Σ * vec(mean(Δ, dims = 2))
         else
-            vec(mean(g, dims = 2))
+            vec(mean(Δ, dims = 2))
         end
         shift_x = q.dist.x .- q.dist.μ
-        ψ = mean(eachcol(g) .* transpose.(eachcol(shift_x)))
+        ψ = mean(eachcol(Δ) .* transpose.(eachcol(shift_x)))
         A = ψ - I
         Δ₂ = if alg.precondΔ₂
             2 * tr(A' * A) / (tr(A^2) + tr(A' * inv(q.dist.Σ) * A * q.dist.Σ)) *

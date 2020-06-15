@@ -4,6 +4,7 @@ using Random: AbstractRNG
 
 using Distributions, DistributionsAD, Bijectors
 using FastGaussQuadrature
+using BlockDiagonals
 using DocStringExtensions
 
 using ProgressMeter, LinearAlgebra
@@ -107,6 +108,8 @@ abstract type VariationalObjective end
 
 const VariationalPosterior = Distribution{Multivariate, Continuous}
 
+nSamples(::VariationalInference) = nothing
+alg_str(alg::VariationalInference) = "Undefined, please define `alg_str(alg)`"
 
 """
     grad!(vo, alg::VariationalInference, q, model::Model, θ, out, args...)
@@ -260,6 +263,9 @@ include("objectives.jl")
 
 # optimisers
 include("optimisers.jl")
+
+# special distributions
+include("meanfield.jl")
 
 # VI algorithms
 include("advi.jl")
