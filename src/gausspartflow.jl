@@ -127,7 +127,7 @@ end
 
 function grad!(
     vo,
-    alg::PFlowVI{<:ForwardDiff},
+    alg::PFlowVI{<:ForwardDiffAD},
     q,
     model,
     θ::AbstractVector{<:Real},

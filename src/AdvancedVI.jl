@@ -264,14 +264,16 @@ include("objectives.jl")
 # optimisers
 include("optimisers.jl")
 
-# special distributions
-include("meanfield.jl")
+
 
 # VI algorithms
 include("advi.jl")
 include("steinvi.jl")
 include("gausspartflow.jl")
 include("utils.jl")
+
+# special distributions
+include("meanfield.jl")
 
 include("adquadvi.jl")
 

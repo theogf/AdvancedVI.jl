@@ -21,7 +21,7 @@ end
 
 function Distributions._rand!(
     rng::AbstractRNG,
-    d::SamplesMvNormal,
+    d::MeanFieldQ,
     x::AbstractMatrix,
 )
     nDim, nPoints = size(x)
@@ -91,12 +91,10 @@ function vi(
     return q
 end
 
-phi(logπ, q, x) = -eval_logπ(logπ, q, x)
-
 function optimize!(
     vo,
     algs::AbstractVector{<:VariationalInference},
-    q::TransformedDistribution{<:MeanFieldQ};
+    q::TransformedDistribution{<:MeanFieldQ},
     logπ,
     θ::AbstractVector{<:Real};
     optimizer = TruncatedADAGrad(),
@@ -156,7 +154,7 @@ end
 function (elbo::ELBO)(
     rng::AbstractRNG,
     alg::PFlowVI,
-    q::TransformedDistribution{<:SamplesMvNormal},
+    q::TransformedDistribution{<:MeanFieldQ},
     logπ::Function
 )
 
