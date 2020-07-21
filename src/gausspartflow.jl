@@ -22,6 +22,7 @@ function update_q!(d::SamplesMvNormal)
 end
 
 Base.length(d::SamplesMvNormal) = d.dim
+nParticles(d::SamplesMvNormal) = d.n_particles
 
 # Random._rand!(d::SteinDistribution, v::AbstractVector) = d.x
 Base.eltype(::SamplesMvNormal{T}) where {T} = T
@@ -134,17 +135,35 @@ function grad!(
     out::DiffResults.MutableDiffResult,
     args...
 )
-    f(x) = mapslices(
+    f(x) = sum(mapslices(
         z -> phi(logπ, q, z),
         x,
         dims = 1,
-    )
-
+    ))
     chunk_size = getchunksize(typeof(alg))
     # Set chunk size and do ForwardMode.
     chunk = ForwardDiff.Chunk(min(length(q.dist.x), chunk_size))
-    config = ForwardDiff.JacobianConfig(f, q.dist.x, chunk)
-    ForwardDiff.jacobian!(out, f, q.dist.x, config)
+    config = ForwardDiff.GradientConfig(f, q.dist.x, chunk)
+    ForwardDiff.gradient!(out, f, q.dist.x, config)
+end
+
+function grad!(
+    vo,
+    alg::PFlowVI{<:ReverseDiffAD},
+    q,
+    logπ,
+    θ::AbstractVector{<:Real},
+    out::DiffResults.MutableDiffResult,
+    args...
+)
+    f(x) = sum(mapslices(
+        z -> phi(logπ, q, z),
+        x,
+        dims = 1,
+    ))
+    tp = AdvancedVI.tape(f, q.dist.x)
+    ReverseDiff.gradient!(out, tp, q.dist.x)
+    return out
 end
 
 phi(logπ, q, x) = -eval_logπ(logπ, q, x)
@@ -171,7 +190,7 @@ function optimize!(
         fill(optimizer, 2)
     end
 
-    diff_result = DiffResults.JacobianResult(zeros(length(q.dist)), q.dist.x)
+    diff_result = DiffResults.GradientResult(q.dist.x)
 
     i = 0
     prog = if PROGRESS[]
@@ -190,7 +209,7 @@ function optimize!(
 
         grad!(vo, alg, q, _logπ, θ, diff_result, samples_per_step)
 
-        Δ = DiffResults.jacobian(diff_result)
+        Δ = DiffResults.gradient(diff_result)
 
         Δ₁ = if alg.precondΔ₁
             q.dist.Σ * vec(mean(Δ, dims = 2))
@@ -212,7 +231,6 @@ function optimize!(
         Δ₁ = apply!(optimizer[1], q.dist.μ, Δ₁)
         Δ₂ = apply!(optimizer[2], q.dist.x, Δ₂)
         @. q.dist.x = q.dist.x - Δ₁ - Δ₂
-
         update_q!(q.dist)
 
         if !isnothing(hyperparams) && !isnothing(hp_optimizer)
