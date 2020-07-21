@@ -129,14 +129,14 @@ function grad!(
     vo,
     alg::PFlowVI{<:ForwardDiffAD},
     q,
-    model,
+    logπ,
     θ::AbstractVector{<:Real},
     out::DiffResults.MutableDiffResult,
     args...
 )
     f(x) = mapslices(
-        z -> phi(_logπ, q, z),
-        q.dist.x,
+        z -> phi(logπ, q, z),
+        x,
         dims = 1,
     )
 
@@ -171,7 +171,7 @@ function optimize!(
         fill(optimizer, 2)
     end
 
-    diff_result = DiffResults.JacobianResult(q.dist.x)
+    diff_result = DiffResults.JacobianResult(zeros(length(q.dist)), q.dist.x)
 
     i = 0
     prog = if PROGRESS[]
