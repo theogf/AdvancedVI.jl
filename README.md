@@ -75,7 +75,7 @@ Let's have a look at the resulting ELBO:
 julia> AdvancedVI.elbo(advi, q, logπ, 1000)
 -287.7866366886285
 ```
-Unfortunately, the *final* value of the ELBO is not always a very good diagnostic, though it's an important metric to keep an eye on during training since a *decrease* in the ELBO means we're going in the right direction. Luckily, this is such a simple problem that we can indeed obtain a closed form solution! Because we're lazy (at least I am), we'll let [ConjugatePriors.jl](https://github.com/JuliaStats/ConjugatePriors.jl) do this for us:
+Unfortunately, the *final* value of the ELBO is not always a very good diagnostic, though the ELBO is an important metric to keep an eye on during training since an *increase* in the ELBO means we're going in the right direction. Luckily, this is such a simple problem that we can indeed obtain a closed form solution! Because we're lazy (at least I am), we'll let [ConjugatePriors.jl](https://github.com/JuliaStats/ConjugatePriors.jl) do this for us:
 ```julia
 julia> # True posterior
        using ConjugatePriors
@@ -169,6 +169,76 @@ julia> mean(abs2, logpdf(q, zs) - logpdf(p, zs))
 0.0014889109427524852
 ```
 That doesn't look too bad!
+
+## Implementing your own training loop
+Sometimes it might be convenient to roll your own training loop rather than using `vi(...)`. Here's some psuedo-code for how one would do that when used together with Turing.jl:
+
+```julia
+using Turing, AdvancedVI, DiffResults
+using Turing: Variational
+
+using ProgressMeter
+
+# Assuming you have an instance of a Turing model (`model`)
+
+# 1. Create log-joint needed for ELBO evaluation
+logπ = Variational.make_logjoint(model)
+
+# 2. Define objective
+variational_objective = Variational.ELBO()
+
+# 3. Optimizer
+optimizer = Variational.DecayedADAGrad()
+
+# 4. VI-algorithm
+alg = ADVI(10, 1000)
+
+# 5. Variational distribution
+function getq(θ)
+    # ...
+end
+
+# 6. [OPTIONAL] Implement convergence criterion
+function hasconverged(args...)
+    # ...
+end
+
+# 7. [OPTIONAL] Implement a callback for tracking stats
+function callback(args...)
+    # ...
+end
+
+# 8. Train
+converged = false
+step = 1
+
+prog = ProgressMeter.Progress(num_steps, 1)
+
+diff_results = DiffResults.GradientResult(θ_init)
+
+while (step ≤ num_steps) && !converged
+    # 1. Compute gradient and objective value; results are stored in `diff_results`
+    AdvancedVI.grad!(variational_objective, alg, getq, model, diff_results)
+
+    # 2. Extract gradient from `diff_result`
+    ∇ = DiffResults.gradient(diff_result)
+
+    # 3. Apply optimizer, e.g. multiplying by step-size
+    Δ = apply!(optimizer, θ, ∇)
+
+    # 4. Update parameters
+    @. θ = θ - Δ
+
+    # 5. Do whatever analysis you want
+    callback(args...)
+
+    # 6. Update
+    converged = hasconverged(...) # or something user-defined
+    step += 1
+
+    ProgressMeter.next!(prog)
+end
+```
 
 
 ## References
