@@ -220,9 +220,10 @@ function optimize!(
         ψ = mean(eachcol(Δ) .* transpose.(eachcol(shift_x)))
         A = ψ - I
         Δ₂ = if alg.precondΔ₂
-            2 * tr(A' * A) / (tr(A^2) + tr(A' * inv(q.dist.Σ) * A * q.dist.Σ)) *
-            A *
-            shift_x
+            B = inv(q.dist.Σ) # Approximation hessian
+            B = Δ * Δ' # Gauss-Newton approximation
+            tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.dist.Σ)) *
+                A * shift_x
         else
             A * shift_x
         end
