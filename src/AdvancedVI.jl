@@ -78,6 +78,25 @@ function __init__()
             ReverseDiff.gradient!(out, tp, θ)
             return out
         end
+
+        function grad!(
+            vo,
+            alg::PFlowVI{<:ReverseDiffAD},
+            q,
+            logπ,
+            θ::AbstractVector{<:Real},
+            out::DiffResults.MutableDiffResult,
+            args...
+        )
+            f(x) = sum(mapslices(
+                z -> phi(logπ, q, z),
+                x,
+                dims = 1,
+            ))
+            tp = AdvancedVI.tape(f, q.dist.x)
+            ReverseDiff.gradient!(out, tp, q.dist.x)
+            return out
+        end
     end
     @require Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0" begin
         include("turingmodels.jl")

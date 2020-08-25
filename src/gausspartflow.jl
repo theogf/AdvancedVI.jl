@@ -147,25 +147,6 @@ function grad!(
     ForwardDiff.gradient!(out, f, q.dist.x, config)
 end
 
-function grad!(
-    vo,
-    alg::PFlowVI{<:ReverseDiffAD},
-    q,
-    logπ,
-    θ::AbstractVector{<:Real},
-    out::DiffResults.MutableDiffResult,
-    args...
-)
-    f(x) = sum(mapslices(
-        z -> phi(logπ, q, z),
-        x,
-        dims = 1,
-    ))
-    tp = AdvancedVI.tape(f, q.dist.x)
-    ReverseDiff.gradient!(out, tp, q.dist.x)
-    return out
-end
-
 phi(logπ, q, x) = -eval_logπ(logπ, q, x)
 
 function optimize!(
