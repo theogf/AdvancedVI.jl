@@ -2,77 +2,79 @@ using StatsFuns
 using DistributionsAD
 using Random: AbstractRNG, GLOBAL_RNG
 
-struct SamplesMvNormal{T,M<:AbstractMatrix{T}} <:
+struct MvMixtureModel{T,V<:AbstractVector{Vector{T}}} <:
        Distributions.ContinuousMultivariateDistribution
     dim::Int
-    n_particles::Int
-    x::M
-    μ::Vector{T}
-    Σ::Matrix{T}
-    function SamplesMvNormal(x::M) where {T,M<:AbstractMatrix{T}}
-        new{T,M}(size(x)..., x, vec(mean(x, dims = 2)), cov(x, dims = 2))
+    K::Int
+    μ::V
+    σ²::Vector{T}
+    function MvMixtureModel(μ::V, σ²::AbstractVector{T}) where {T, V<:AbstractVector{Vector{T}}}
+        new{T,V}(length(first(μ)), length(μ), μ, σ²)
     end
 end
 
-function update_q!(d::SamplesMvNormal)
+function update_q!(d::MvMixtureModel)
     d.μ .= vec(mean(d.x, dims = 2))
     d.Σ .= cov(d.x, dims = 2)
     nothing
 end
 
-Base.length(d::SamplesMvNormal) = d.dim
-nParticles(d::SamplesMvNormal) = d.n_particles
+Base.length(d::MvMixtureModel) = d.dim
+nParticles(d::MvMixtureModel) = d.K
+_realizep(d::MvMixureModel) = MixtureModel(MvNormal.(d.μ, d.σ²))
 
 # Random._rand!(d::SteinDistribution, v::AbstractVector) = d.x
-Base.eltype(::SamplesMvNormal{T}) where {T} = T
+Base.eltype(::MvMixtureModel{T}) where {T} = T
 function Distributions._rand!(
     rng::AbstractRNG,
-    d::SamplesMvNormal,
+    d::MvMixtureModel,
     x::AbstractVector,
 )
-    nDim = length(x)
-    @assert nDim == d.dim "Wrong dimensions"
-    x .= d.x[rand(rng, 1:d.n_particles), :]
+    length(x) == d.dim || error("Wrong dimensions")
+    x .= rand(rng, _realize_p(d))
 end
 function Distributions._rand!(
     rng::AbstractRNG,
-    d::SamplesMvNormal,
+    d::MvMixtureModel,
     x::AbstractMatrix,
 )
     nDim, nPoints = size(x)
-    @assert nDim == d.dim "Wrong dimensions"
-    x .= d.x[rand(rng, 1:d.n_particles, nPoints), :]'
+    nDim == d.dim || error("Wrong dimensions")
+    x .= rand(rng, _realize_p(d), nPoints)
 end
-Distributions.mean(d::SamplesMvNormal) = d.μ
-Distributions.cov(d::SamplesMvNormal) = d.Σ
-Distributions.var(d::SamplesMvNormal) = diag(d.Σ)
-Distributions.entropy(d::SamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
+Distributions.mean(d::MvMixtureModel) = mean(d.μ)
+_var(d::MixtureModel) = mean(d.σ²) + mean(d.)
+Distributions.cov(d::MvMixtureModel) = mean(d.σ²) * I(length(d)) + mean((d.μ .- mean(d)) .* (d.μ .- mean(d))')
+Distributions.var(d::MvMixtureModel) = mean(d.σ²) * ones(length(d)) + mean(abs2.(d.μ .- mean(d)))
+Distributions.entropy(d::MvMixtureModel) = NaN
 
-const SampMvNormal =
-    Union{SamplesMvNormal,TransformedDistribution{<:SamplesMvNormal}}
+q_to_vec(q::MvMixtureModel) = vcat(q.μ..., q.σ²)
+vec_to_q(q::MvMixtureModel, θ::AbstractVector) = MvMixtureModel([θ[((i-1) * q.dim + 1):(i * q.dim)] for i in 1:q.K], θ[(q.K * q.dim + 1):end])
+
+
+const AllMvMixtureModel =
+    Union{MvMixtureModel,TransformedDistribution{<:MvMixtureModel}}
 
 """
     PFlowVI(n_particles = 100, max_iters = 1000)
 
 Gaussian Particle Flow Inference (PFlowVI) for a given model.
 """
-struct PFlowVI{AD} <: VariationalInference{AD}
+struct NonParamVI{AD} <: VariationalInference{AD}
     max_iters::Int        # maximum number of gradient steps used in optimization
-    precondΔ₁::Bool # Precondition the first gradient (mean)
-    precondΔ₂::Bool # Precondition the second gradient (cov)
 end
 
 # params(alg::SteinVI) = nothing;#params(alg.kernel)
 
-PFlowVI(args...) = PFlowVI{ADBackend()}(args...)
-PFlowVI() = PFlowVI(100, true, false)
+NonParamVI(args...) = NonParamVI{ADBackend()}(args...)
+NonParamVI() = NonParamVI(100)
 
-alg_str(::PFlowVI) = "PFlowVI"
+alg_str(::NonParamVI) = "NonParamVI"
 
 function vi(
     logπ::Function,
-    alg::PFlowVI,
-    q::SamplesMvNormal;
+    alg::NonParamVI,
+    q::MvMixtureModel;
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
@@ -86,7 +88,7 @@ function vi(
         alg,
         transformed(q, Identity{1}()),
         logπ,
-        [0.0];
+        q_to_vec(q);
         optimizer = optimizer,
         callback = callback,
         hyperparams = hyperparams,
@@ -99,8 +101,8 @@ end
 
 function vi(
     logπ::Function,
-    alg::PFlowVI,
-    q::TransformedDistribution{<:SamplesMvNormal};
+    alg::NonParamVI,
+    q::TransformedDistribution{<:MvMixtureModel};
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
@@ -114,7 +116,7 @@ function vi(
         alg,
         q,
         logπ,
-        [0.0];
+        q_to_vec(q);
         optimizer = optimizer,
         callback = callback,
         hyperparams = nothing,
@@ -127,7 +129,7 @@ end
 
 function grad!(
     vo,
-    alg::PFlowVI{<:ForwardDiffAD},
+    alg::NonParamVI{<:ForwardDiffAD},
     q,
     logπ,
     θ::AbstractVector{<:Real},
@@ -148,9 +150,22 @@ end
 
 phi(logπ, q, x) = -eval_logπ(logπ, q, x)
 
+qₙ(q, n) = sum(pdf(MvNormal(q.μ[j], (q.σ²[n] + q.σ²[n])), q.μ[n]) for i in 1:q.K)
+function elbo(logπ, q)
+    sum(logπ(q.μ[i])) + q.σ²[i] * trH(logπ, q.μ[i]) + log(qₙ(q, i)) for i in 1:q.K) / q.K
+end
+
+function elbo_1(logπ, q)
+    sum(logπ(q.μ[i]) + log(qₙ(q, i)) for i in 1:q.K) / q.K
+end
+
+function elbo_2(logπ, q)
+    sum(q.σ²[i] * trH(logπ, q.μ[i]) + log(qₙ(q, i)) for i in 1:q.K) / q.K
+end
+
 function optimize!(
     vo,
-    alg::PFlowVI,
+    alg::NonParamVI,
     q::SampMvNormal,
     logπ,
     θ::AbstractVector{<:Real};
@@ -170,7 +185,7 @@ function optimize!(
         fill(optimizer, 2)
     end
 
-    diff_result = DiffResults.GradientResult(q.dist.x)
+    diff_result = DiffResults.GradientResult(θ)
 
     i = 0
     prog = if PROGRESS[]
@@ -191,22 +206,7 @@ function optimize!(
 
         Δ = DiffResults.gradient(diff_result)
 
-        Δ₁ = if alg.precondΔ₁
-            q.dist.Σ * vec(mean(Δ, dims = 2))
-        else
-            vec(mean(Δ, dims = 2))
-        end
-        shift_x = q.dist.x .- q.dist.μ
-        ψ = mean(eachcol(Δ) .* transpose.(eachcol(shift_x)))
-        A = ψ - I
-        Δ₂ = if alg.precondΔ₂
-            B = inv(q.dist.Σ) # Approximation hessian
-            B = Δ * Δ' # Gauss-Newton approximation
-            tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.dist.Σ)) *
-                A * shift_x
-        else
-            A * shift_x
-        end
+        gradient(θ)
 
         # apply update rule
         Δ₁ = apply!(optimizer[1], q.dist.μ, Δ₁)
@@ -235,7 +235,7 @@ end
 function (elbo::ELBO)(
     rng::AbstractRNG,
     alg::PFlowVI,
-    q::TransformedDistribution{<:SamplesMvNormal},
+    q::TransformedDistribution{<:MvMixtureModel},
     logπ::Function
 )
 
