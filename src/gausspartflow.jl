@@ -2,15 +2,30 @@ using StatsFuns
 using DistributionsAD
 using Random: AbstractRNG, GLOBAL_RNG
 
-struct SamplesMvNormal{T,M<:AbstractMatrix{T}} <:
-       Distributions.ContinuousMultivariateDistribution
+struct SamplesMvNormal{
+    T,
+    Tx<:AbstractMatrix{T},
+    Tμ<:AbstractVector{T},
+    TΣ<:AbstractMatrix{T},
+} <: Distributions.ContinuousMultivariateDistribution
     dim::Int
     n_particles::Int
-    x::M
-    μ::Vector{T}
-    Σ::Matrix{T}
+    x::Tx
+    μ::Tμ
+    Σ::TΣ
     function SamplesMvNormal(x::M) where {T,M<:AbstractMatrix{T}}
-        new{T,M}(size(x)..., x, vec(mean(x, dims = 2)), cov(x, dims = 2))
+        μ = vec(mean(x, dims = 2))
+        Σ = cov(x, dims = 2)
+        new{T,M,typeof(μ),typeof(Σ)}(size(x)..., x, μ, Σ)
+    end
+    function SamplesMvNormal(
+        dim::Int,
+        n_particles::Int,
+        x::Tx,
+        μ::Tμ,
+        Σ::TΣ,
+    ) where {T,Tx<:AbstractMatrix{T},Tμ<:AbstractVector{T},TΣ<:AbstractMatrix{T}}
+        new{T,Tx,Tμ,TΣ}(dim, n_particles, x, μ, Σ)
     end
 end
 
@@ -20,27 +35,21 @@ function update_q!(d::SamplesMvNormal)
     nothing
 end
 
+@functor SamplesMvNormal
+
 Base.length(d::SamplesMvNormal) = d.dim
 nParticles(d::SamplesMvNormal) = d.n_particles
 
 # Random._rand!(d::SteinDistribution, v::AbstractVector) = d.x
 Base.eltype(::SamplesMvNormal{T}) where {T} = T
-function Distributions._rand!(
-    rng::AbstractRNG,
-    d::SamplesMvNormal,
-    x::AbstractVector,
-)
+function Distributions._rand!(rng::AbstractRNG, d::SamplesMvNormal, x::AbstractVector)
     nDim = length(x)
-    @assert nDim == d.dim "Wrong dimensions"
+    nDim == d.dim || error("Wrong dimensions")
     x .= d.x[rand(rng, 1:d.n_particles), :]
 end
-function Distributions._rand!(
-    rng::AbstractRNG,
-    d::SamplesMvNormal,
-    x::AbstractMatrix,
-)
+function Distributions._rand!(rng::AbstractRNG, d::SamplesMvNormal, x::AbstractMatrix)
     nDim, nPoints = size(x)
-    @assert nDim == d.dim "Wrong dimensions"
+    nDim == d.dim || error("Wrong dimensions")
     x .= d.x[rand(rng, 1:d.n_particles, nPoints), :]'
 end
 Distributions.mean(d::SamplesMvNormal) = d.μ
@@ -48,8 +57,7 @@ Distributions.cov(d::SamplesMvNormal) = d.Σ
 Distributions.var(d::SamplesMvNormal) = diag(d.Σ)
 Distributions.entropy(d::SamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
 
-const SampMvNormal =
-    Union{SamplesMvNormal,TransformedDistribution{<:SamplesMvNormal}}
+const SampMvNormal = Union{SamplesMvNormal,TransformedDistribution{<:SamplesMvNormal}}
 
 """
     PFlowVI(n_particles = 100, max_iters = 1000)
@@ -132,13 +140,9 @@ function grad!(
     logπ,
     θ::AbstractVector{<:Real},
     out::DiffResults.MutableDiffResult,
-    args...
+    args...,
 )
-    f(x) = sum(mapslices(
-        z -> phi(logπ, q, z),
-        x,
-        dims = 1,
-    ))
+    f(x) = sum(mapslices(z -> phi(logπ, q, z), x, dims = 1))
     chunk_size = getchunksize(typeof(alg))
     # Set chunk size and do ForwardMode.
     chunk = ForwardDiff.Chunk(min(length(q.dist.x), chunk_size))
@@ -157,7 +161,7 @@ function optimize!(
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
-    hp_optimizer = nothing
+    hp_optimizer = nothing,
 )
     alg_name = alg_str(alg)
     samples_per_step = nSamples(alg)
@@ -202,8 +206,7 @@ function optimize!(
         Δ₂ = if alg.precondΔ₂
             B = inv(q.dist.Σ) # Approximation hessian
             B = Δ * Δ' # Gauss-Newton approximation
-            tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.dist.Σ)) *
-                A * shift_x
+            tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.dist.Σ)) * A * shift_x
         else
             A * shift_x
         end
@@ -236,7 +239,7 @@ function (elbo::ELBO)(
     rng::AbstractRNG,
     alg::PFlowVI,
     q::TransformedDistribution{<:SamplesMvNormal},
-    logπ::Function
+    logπ::Function,
 )
 
     res = sum(mapslices(x -> -phi(logπ, q, x), q.dist.x, dims = 1))

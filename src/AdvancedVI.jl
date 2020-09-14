@@ -13,6 +13,9 @@ using KernelFunctions, Distances
 
 using ForwardDiff
 using Tracker
+using Functors
+
+@functor TuringDenseMvNormal
 
 const PROGRESS = Ref(true)
 function turnprogress(switch::Bool)
@@ -55,6 +58,29 @@ function __init__()
             DiffResults.gradient!(out, dy)
             return out
         end
+        function grad!(
+            vo,
+            alg::PFlowVI{<:AdvancedVI.ZygoteAD},
+            q,
+            logπ,
+            θ::AbstractVector{<:Real},
+            out::DiffResults.MutableDiffResult,
+            args...
+        )
+            function logjoint(x)
+                sum(map(axes(x, 2)) do i
+                    # phi(logπ, q, x[:, i])
+                    phi(logπ, q, view(x, :, i))
+                end
+                )
+            end
+            val, back = Zygote.pullback(logjoint, q.dist.x)
+            dy = first(back(1.0))
+            DiffResults.value!(out, val)
+            DiffResults.gradient!(out, dy)
+            return out
+        end
+
     end
     @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" begin
         include("compat/reversediff.jl")
