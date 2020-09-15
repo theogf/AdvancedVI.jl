@@ -2,12 +2,14 @@ using StatsFuns
 using DistributionsAD
 using Random: AbstractRNG, GLOBAL_RNG
 
+abstract type AbstractMvSamplesNormal <: Distributions.ContinousMultivariateDistribution
+
 struct SamplesMvNormal{
     T,
     Tx<:AbstractMatrix{T},
     Tμ<:AbstractVector{T},
     TΣ<:AbstractMatrix{T},
-} <: Distributions.ContinuousMultivariateDistribution
+} <: AbstractMvSamplesNormal
     dim::Int
     n_particles::Int
     x::Tx
@@ -57,7 +59,70 @@ Distributions.cov(d::SamplesMvNormal) = d.Σ
 Distributions.var(d::SamplesMvNormal) = diag(d.Σ)
 Distributions.entropy(d::SamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
 
-const SampMvNormal = Union{SamplesMvNormal,TransformedDistribution{<:SamplesMvNormal}}
+struct MFSamplesMvNormal{
+    T,
+    Tx<:AbstractMatrix{T},
+    Ti<:AbstractVector{<:Int}
+    Tμ<:AbstractVector{T},
+    TΣ<:AbstractMatrix{T},
+} <: AbstractMvSamplesNormal
+    dim::Int
+    n_particles::Int
+    K::Int
+    id::Ti
+    x::Tx
+    μ::Tμ
+    Σ::TΣ
+    function MFSamplesMvNormal(x::M, indices::AbstractVector{<:Int}) where {T,M<:AbstractMatrix{T}}
+        K = length(indices) - 1
+        μ = vec(mean(x, dims = 2))
+        Σ = BlockDiagonal([cov(view(x, indices[i]:indices[i+1]-1, :) , dims = 2) for i in 1:K])
+        new{T,M,typeof(indices), typeof(μ),typeof(Σ)}(size(x)..., indices, x, μ, Σ)
+    end
+    function MFSamplesMvNormal(
+        dim::Int,
+        n_particles::Int,
+        K::Int,
+        indices::Ti
+        x::Tx,
+        μ::Tμ,
+        Σ::TΣ,
+    ) where {T,Ti,Tx<:AbstractMatrix{T},Tμ<:AbstractVector{T},TΣ<:AbstractMatrix{T}}
+        new{T,Ti,Tx,Tμ,TΣ}(dim, n_particles, K, indices, x, μ, Σ)
+    end
+end
+
+function update_q!(d::MFSamplesMvNormal)
+    d.μ .= vec(mean(d.x, dims = 2))
+    d.Σ .= BlockDiagonal([cov(view(x, d.id[i]:d.id[i+1]-1, :) , dims = 2) for i in 1:d.K])
+    nothing
+end
+
+@functor MFSamplesMvNormal
+
+Base.length(d::MFSamplesMvNormal) = d.dim
+nParticles(d::MFSamplesMvNormal) = d.n_particles
+
+# Random._rand!(d::SteinDistribution, v::AbstractVector) = d.x
+Base.eltype(::SamplesMvNormal{T}) where {T} = T
+function Distributions._rand!(rng::AbstractRNG, d::SamplesMvNormal, x::AbstractVector)
+    nDim = length(x)
+    nDim == d.dim || error("Wrong dimensions")
+    x .= d.x[rand(rng, 1:d.n_particles), :]
+end
+function Distributions._rand!(rng::AbstractRNG, d::SamplesMvNormal, x::AbstractMatrix)
+    nDim, nPoints = size(x)
+    nDim == d.dim || error("Wrong dimensions")
+    x .= d.x[rand(rng, 1:d.n_particles, nPoints), :]'
+end
+Distributions.mean(d::SamplesMvNormal) = d.μ
+Distributions.cov(d::SamplesMvNormal) = d.Σ
+Distributions.var(d::SamplesMvNormal) = diag(d.Σ)
+Distributions.entropy(d::SamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
+
+
+
+const SampMvNormal = Union{MFSamplesMvNormal, SamplesMvNormal,TransformedDistribution{<:AbstractMvSamplesNormal}}
 
 """
     PFlowVI(n_particles = 100, max_iters = 1000)
@@ -80,7 +145,7 @@ alg_str(::PFlowVI) = "PFlowVI"
 function vi(
     logπ::Function,
     alg::PFlowVI,
-    q::SamplesMvNormal;
+    q::AbstractMvSamplesNormal;
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
@@ -108,7 +173,7 @@ end
 function vi(
     logπ::Function,
     alg::PFlowVI,
-    q::TransformedDistribution{<:SamplesMvNormal};
+    q::TransformedDistribution{<:AbstractMvSamplesNormal};
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
@@ -201,15 +266,7 @@ function optimize!(
             vec(mean(Δ, dims = 2))
         end
         shift_x = q.dist.x .- q.dist.μ
-        ψ = mean(eachcol(Δ) .* transpose.(eachcol(shift_x)))
-        A = ψ - I
-        Δ₂ = if alg.precondΔ₂
-            B = inv(q.dist.Σ) # Approximation hessian
-            B = Δ * Δ' # Gauss-Newton approximation
-            tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.dist.Σ)) * A * shift_x
-        else
-            A * shift_x
-        end
+        Δ₂ = compute_cov_part(q.dist, shift_x, Δ)
 
         # apply update rule
         Δ₁ = apply!(optimizer[1], q.dist.μ, Δ₁)
@@ -233,6 +290,31 @@ function optimize!(
     end
 
     return q
+end
+
+function compute_cov_part(q::MvSamplesNormal, x::AbstractMatrix, Δ::AbstractMatrix, alg::PFlowVI)
+    ψ = mean(eachcol(Δ) .* transpose.(eachcol(x)))
+    A = ψ - I
+    Δ₂ = if alg.precondΔ₂
+        B = inv(q.Σ) # Approximation hessian
+        # B = Δ * Δ' # Gauss-Newton approximation
+        tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.Σ)) * A * x
+    else
+        A * x
+    end
+    return Δ₂
+end
+
+function compute_cov_part(q::MFMvSamplesNormal, x::AbstractMatrix, Δ::AbstractMatrix, alg::PFlowVI)
+    @views A = [mean(eachcol(Δ[q.id[i]:q.id[i+1]-1, :]) .* transpose.(eachcol(X[q.id[i]:q.id[i+1]-1, :]))) - I for i in 1:q.K]
+    Δ₂ = if alg.precondΔ₂
+        B = inv(q.Σ) # Approximation hessian
+        # B = Δ * Δ' # Gauss-Newton approximation
+        tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.Σ)) * A * x
+    else
+        A * x
+    end
+    return Δ₂
 end
 
 function (elbo::ELBO)(
