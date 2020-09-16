@@ -16,6 +16,7 @@ using Tracker
 using Functors
 
 @functor TuringDenseMvNormal
+@functor BlockDiagonal
 
 const PROGRESS = Ref(true)
 function turnprogress(switch::Bool)
@@ -142,6 +143,7 @@ export
     SteinVI,
     SteinDistribution,
     SamplesMvNormal,
+    MFSamplesMvNormal,
     PFlowVI
 
 abstract type VariationalInference{AD} end

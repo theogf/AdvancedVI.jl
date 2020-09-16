@@ -2,14 +2,14 @@ using StatsFuns
 using DistributionsAD
 using Random: AbstractRNG, GLOBAL_RNG
 
-abstract type AbstractMvSamplesNormal <: Distributions.ContinousMultivariateDistribution
+abstract type AbstractSamplesMvNormal{T} <: Distributions.ContinuousMultivariateDistribution end
 
 struct SamplesMvNormal{
     T,
     Tx<:AbstractMatrix{T},
     Tμ<:AbstractVector{T},
     TΣ<:AbstractMatrix{T},
-} <: AbstractMvSamplesNormal
+} <: AbstractSamplesMvNormal{T}
     dim::Int
     n_particles::Int
     x::Tx
@@ -39,33 +39,33 @@ end
 
 @functor SamplesMvNormal
 
-Base.length(d::SamplesMvNormal) = d.dim
-nParticles(d::SamplesMvNormal) = d.n_particles
+Base.length(d::AbstractSamplesMvNormal) = d.dim
+nParticles(d::AbstractSamplesMvNormal) = d.n_particles
 
 # Random._rand!(d::SteinDistribution, v::AbstractVector) = d.x
-Base.eltype(::SamplesMvNormal{T}) where {T} = T
-function Distributions._rand!(rng::AbstractRNG, d::SamplesMvNormal, x::AbstractVector)
+Base.eltype(::AbstractSamplesMvNormal{T}) where {T} = T
+function Distributions._rand!(rng::AbstractRNG, d::AbstractSamplesMvNormal, x::AbstractVector)
     nDim = length(x)
     nDim == d.dim || error("Wrong dimensions")
     x .= d.x[rand(rng, 1:d.n_particles), :]
 end
-function Distributions._rand!(rng::AbstractRNG, d::SamplesMvNormal, x::AbstractMatrix)
+function Distributions._rand!(rng::AbstractRNG, d::AbstractSamplesMvNormal, x::AbstractMatrix)
     nDim, nPoints = size(x)
     nDim == d.dim || error("Wrong dimensions")
     x .= d.x[rand(rng, 1:d.n_particles, nPoints), :]'
 end
-Distributions.mean(d::SamplesMvNormal) = d.μ
-Distributions.cov(d::SamplesMvNormal) = d.Σ
-Distributions.var(d::SamplesMvNormal) = diag(d.Σ)
-Distributions.entropy(d::SamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
+Distributions.mean(d::AbstractSamplesMvNormal) = d.μ
+Distributions.cov(d::AbstractSamplesMvNormal) = d.Σ
+Distributions.var(d::AbstractSamplesMvNormal) = diag(d.Σ)
+Distributions.entropy(d::AbstractSamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
 
 struct MFSamplesMvNormal{
     T,
     Tx<:AbstractMatrix{T},
-    Ti<:AbstractVector{<:Int}
+    Ti<:AbstractVector{<:Int},
     Tμ<:AbstractVector{T},
     TΣ<:AbstractMatrix{T},
-} <: AbstractMvSamplesNormal
+} <: AbstractSamplesMvNormal{T}
     dim::Int
     n_particles::Int
     K::Int
@@ -76,53 +76,33 @@ struct MFSamplesMvNormal{
     function MFSamplesMvNormal(x::M, indices::AbstractVector{<:Int}) where {T,M<:AbstractMatrix{T}}
         K = length(indices) - 1
         μ = vec(mean(x, dims = 2))
-        Σ = BlockDiagonal([cov(view(x, indices[i]:indices[i+1]-1, :) , dims = 2) for i in 1:K])
-        new{T,M,typeof(indices), typeof(μ),typeof(Σ)}(size(x)..., indices, x, μ, Σ)
+        Σ = BlockDiagonal([cov(view(x, (indices[i]+1):indices[i+1], :) , dims = 2) for i in 1:K])
+        new{T,M,typeof(indices), typeof(μ),typeof(Σ)}(size(x)..., K,  indices, x, μ, Σ)
     end
     function MFSamplesMvNormal(
         dim::Int,
         n_particles::Int,
         K::Int,
-        indices::Ti
+        indices::Ti,
         x::Tx,
         μ::Tμ,
         Σ::TΣ,
-    ) where {T,Ti,Tx<:AbstractMatrix{T},Tμ<:AbstractVector{T},TΣ<:AbstractMatrix{T}}
-        new{T,Ti,Tx,Tμ,TΣ}(dim, n_particles, K, indices, x, μ, Σ)
+    ) where {T,Tx<:AbstractMatrix{T},Ti,Tμ<:AbstractVector{T},TΣ<:AbstractMatrix{T}}
+        new{T,Tx,Ti,Tμ,TΣ}(dim, n_particles, K, indices, x, μ, Σ)
     end
 end
 
 function update_q!(d::MFSamplesMvNormal)
     d.μ .= vec(mean(d.x, dims = 2))
-    d.Σ .= BlockDiagonal([cov(view(x, d.id[i]:d.id[i+1]-1, :) , dims = 2) for i in 1:d.K])
+    for i in 1:d.K
+        d.Σ.blocks[i] .= cov(view(d.x, (d.id[i]+1):d.id[i+1], :) , dims = 2)
+    end
     nothing
 end
 
 @functor MFSamplesMvNormal
 
-Base.length(d::MFSamplesMvNormal) = d.dim
-nParticles(d::MFSamplesMvNormal) = d.n_particles
-
-# Random._rand!(d::SteinDistribution, v::AbstractVector) = d.x
-Base.eltype(::SamplesMvNormal{T}) where {T} = T
-function Distributions._rand!(rng::AbstractRNG, d::SamplesMvNormal, x::AbstractVector)
-    nDim = length(x)
-    nDim == d.dim || error("Wrong dimensions")
-    x .= d.x[rand(rng, 1:d.n_particles), :]
-end
-function Distributions._rand!(rng::AbstractRNG, d::SamplesMvNormal, x::AbstractMatrix)
-    nDim, nPoints = size(x)
-    nDim == d.dim || error("Wrong dimensions")
-    x .= d.x[rand(rng, 1:d.n_particles, nPoints), :]'
-end
-Distributions.mean(d::SamplesMvNormal) = d.μ
-Distributions.cov(d::SamplesMvNormal) = d.Σ
-Distributions.var(d::SamplesMvNormal) = diag(d.Σ)
-Distributions.entropy(d::SamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
-
-
-
-const SampMvNormal = Union{MFSamplesMvNormal, SamplesMvNormal,TransformedDistribution{<:AbstractMvSamplesNormal}}
+const SampMvNormal = Union{MFSamplesMvNormal, SamplesMvNormal,TransformedDistribution{<:AbstractSamplesMvNormal}}
 
 """
     PFlowVI(n_particles = 100, max_iters = 1000)
@@ -145,7 +125,7 @@ alg_str(::PFlowVI) = "PFlowVI"
 function vi(
     logπ::Function,
     alg::PFlowVI,
-    q::AbstractMvSamplesNormal;
+    q::AbstractSamplesMvNormal;
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
@@ -173,7 +153,7 @@ end
 function vi(
     logπ::Function,
     alg::PFlowVI,
-    q::TransformedDistribution{<:AbstractMvSamplesNormal};
+    q::TransformedDistribution{<:AbstractSamplesMvNormal};
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
@@ -247,7 +227,8 @@ function optimize!(
     else
         0
     end
-
+    Δ₁ = similar(q.dist.μ)
+    Δ₂ = similar(q.dist.x)
     time_elapsed = @elapsed while (i < max_iters) # & converged
 
         _logπ = if !isnothing(hyperparams)
@@ -260,17 +241,17 @@ function optimize!(
 
         Δ = DiffResults.gradient(diff_result)
 
-        Δ₁ = if alg.precondΔ₁
+        Δ₁ .= if alg.precondΔ₁
             q.dist.Σ * vec(mean(Δ, dims = 2))
         else
             vec(mean(Δ, dims = 2))
         end
         shift_x = q.dist.x .- q.dist.μ
-        Δ₂ = compute_cov_part(q.dist, shift_x, Δ)
+        compute_cov_part!(Δ₂, q.dist, shift_x, Δ, alg)
 
         # apply update rule
-        Δ₁ = apply!(optimizer[1], q.dist.μ, Δ₁)
-        Δ₂ = apply!(optimizer[2], q.dist.x, Δ₂)
+        Δ₁ .= apply!(optimizer[1], q.dist.μ, Δ₁)
+        Δ₂ .= apply!(optimizer[2], q.dist.x, Δ₂)
         @. q.dist.x = q.dist.x - Δ₁ - Δ₂
         update_q!(q.dist)
 
@@ -292,29 +273,26 @@ function optimize!(
     return q
 end
 
-function compute_cov_part(q::MvSamplesNormal, x::AbstractMatrix, Δ::AbstractMatrix, alg::PFlowVI)
+function compute_cov_part!(Δ₂::AbstractMatrix, q::SamplesMvNormal, x::AbstractMatrix, Δ::AbstractMatrix, alg::PFlowVI)
     ψ = mean(eachcol(Δ) .* transpose.(eachcol(x)))
     A = ψ - I
-    Δ₂ = if alg.precondΔ₂
+    Δ₂ .= if alg.precondΔ₂
         B = inv(q.Σ) # Approximation hessian
         # B = Δ * Δ' # Gauss-Newton approximation
         tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.Σ)) * A * x
     else
         A * x
     end
-    return Δ₂
 end
 
-function compute_cov_part(q::MFMvSamplesNormal, x::AbstractMatrix, Δ::AbstractMatrix, alg::PFlowVI)
-    @views A = [mean(eachcol(Δ[q.id[i]:q.id[i+1]-1, :]) .* transpose.(eachcol(X[q.id[i]:q.id[i+1]-1, :]))) - I for i in 1:q.K]
-    Δ₂ = if alg.precondΔ₂
-        B = inv(q.Σ) # Approximation hessian
-        # B = Δ * Δ' # Gauss-Newton approximation
-        tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.Σ)) * A * x
-    else
-        A * x
+el_mul_trans(x, y) = x * y'
+
+function compute_cov_part!(Δ₂::AbstractMatrix, q::MFSamplesMvNormal, x::AbstractMatrix, Δ::AbstractMatrix, alg::PFlowVI)
+    for i in 1:q.K
+        # mul!(Δ₂[q.id[i]+1:q.id[i+1], :], (mean(eachcol(Δ[(q.id[i]+1):q.id[i+1], :]) .* transpose.(eachcol(x[(q.id[i]+1):q.id[i+1], :]))) - I), x[(q.id[i]+1):q.id[i+1], :])
+        # mul!(Δ₂[q.id[i]+1:q.id[i+1], :], (mean(eachcol(view(Δ, (q.id[i]+1):q.id[i+1], :)) .* transpose.(eachcol(view(x, (q.id[i]+1):q.id[i+1], :)))) - I), x[(q.id[i]+1):q.id[i+1], :])
+        mul!(Δ₂[q.id[i]+1:q.id[i+1], :], (mapreduce(el_mul_trans, +, eachcol(Δ[(q.id[i]+1):q.id[i+1], :]), eachcol(x[(q.id[i]+1):q.id[i+1], :])) / q.n_particles - I), x[(q.id[i]+1):q.id[i+1], :])
     end
-    return Δ₂
 end
 
 function (elbo::ELBO)(

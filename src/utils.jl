@@ -28,5 +28,3 @@ end
 function hp_grad(vo, alg, q, logπ, hyperparameters, args...)
     ForwardDiff.gradient(x -> vo(alg, q, logπ(x), args...), hyperparameters)
 end
-
-Distributions.entropy(p::TuringDenseMvNormal) = 0.5*length(p)* (1 + twoπ) + 0.5 * logdet(p.C)
