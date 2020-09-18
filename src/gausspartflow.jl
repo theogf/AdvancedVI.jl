@@ -298,14 +298,33 @@ function compute_cov_part!(
     Δ::AbstractMatrix,
     alg::PFlowVI,
 )
+    Δ₂ .= x
     ψ = mean(eachcol(Δ) .* transpose.(eachcol(x)))
-    A = ψ - I
-    Δ₂ .= if alg.precondΔ₂
+    if alg.precondΔ₂
+        A = Δ * x' / q.n_particles - I
         B = inv(q.Σ) # Approximation hessian
         # B = Δ * Δ' # Gauss-Newton approximation
-        tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.Σ)) * A * x
+        cond = tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.Σ))
+        lmul!(cond * A, Δ₂)
     else
-        A * x
+        if q.n_particles < q.dim
+            mul!(
+                Δ₂,
+                Δ,
+                x' * x,
+                Float32(inv(q.n_particles)),
+                -1.0f0,
+            )
+        # If N >> D it's more efficient to compute ϕ xᵀ first
+        else
+            mul!(
+                Δ₂,
+                Δ * x,
+                x,
+                Float32(inv(q.n_particles)),
+                -1.0f0,
+            )
+        end
     end
 end
 
@@ -322,13 +341,28 @@ function compute_cov_part!(
         # mul!(Δ₂[q.id[i]+1:q.id[i+1], :], (mean(eachcol(view(Δ, (q.id[i]+1):q.id[i+1], :)) .* transpose.(eachcol(view(x, (q.id[i]+1):q.id[i+1], :)))) - I), x[(q.id[i]+1):q.id[i+1], :])
         # xview = view(x, (q.id[i]+1):q.id[i+1], :)
         xview = x[(q.id[i]+1):q.id[i+1], :]
-        mul!(
-            Δ₂[(q.id[i]+1):q.id[i+1], :],
-            Δ[(q.id[i]+1):q.id[i+1], :],
-            xview' * xview,
-            Float32(inv(q.n_particles)),
-            -1.0f0,
-        )
+        # Proceed to the operation :
+        # (ψ - I) * x == (1/ N (∑ ϕᵢxᵀᵢ) - I) * x == (1/N ϕ xᵀ - I) * x
+        # It is done via mul!(C, A, B, α, β) : C = αAB + βC
+        # If D << N it's more efficient to compute xᵀ x first
+        if q.n_particles < q.id[i+1] - q.id[i]
+            mul!(
+                Δ₂[(q.id[i]+1):q.id[i+1], :],
+                Δ[(q.id[i]+1):q.id[i+1], :],
+                xview' * xview,
+                Float32(inv(q.n_particles)),
+                -1.0f0,
+            )
+        # If N >> D it's more efficient to compute ϕ xᵀ first
+        else
+            mul!(
+                Δ₂[(q.id[i]+1):q.id[i+1], :],
+                Δ[(q.id[i]+1):q.id[i+1], :] * xview',
+                xview,
+                Float32(inv(q.n_particles)),
+                -1.0f0,
+            )
+        end
         # mul!(Δ₂[q.id[i]+1:q.id[i+1], :], (mapreduce(mul_trans, +, eachcol(Δ[(q.id[i]+1):q.id[i+1], :]), eachcol(x[(q.id[i]+1):q.id[i+1], :])) / q.n_particles - I), x[(q.id[i]+1):q.id[i+1], :])
     end
 end
