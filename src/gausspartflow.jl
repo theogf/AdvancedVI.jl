@@ -319,7 +319,7 @@ function compute_cov_part!(
         else
             mul!(
                 Δ₂,
-                Δ * x,
+                Δ * x',
                 x,
                 Float32(inv(q.n_particles)),
                 -1.0f0,
