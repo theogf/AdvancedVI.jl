@@ -6,13 +6,11 @@ function update(td::Union{<:TransformedDistribution{D}, D}, θ::AbstractArray) w
     return update(td, μ, σ)
 end
 
-BlockDiagonals.blocksizes()
-
 function update(td::TuringDenseMvNormal{<:AbstractVector, <:Cholesky{<:Real, <:BlockDiagonal}}, θ::AbstractArray)
     μ = θ[1:length(td)]
     sizes = vcat(0, blocksizes(td.C.U))
     ids = cumsum(sizes .* (sizes .+ 1) / 2)
-    Σ = view(θ, (length(td)+1:end))
+    Σ = θ[(length(td)+1):end]
     Σs = [make_triangular(view(Σ, (ids[i]+1):ids[i+1]), sizes[i+1]) for i in 1:(length(ids)-1)]
     return update(td, μ, BlockDiagonal(Σs))
 end
