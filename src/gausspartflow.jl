@@ -5,75 +5,72 @@ using Random: AbstractRNG, GLOBAL_RNG
 abstract type AbstractSamplesMvNormal{T} <:
               Distributions.ContinuousMultivariateDistribution end
 
+Base.eltype(::AbstractSamplesMvNormal{T}) where {T} = T
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::AbstractSamplesMvNormal,
+  x::AbstractVector,
+)
+  nDim = length(x)
+  nDim == d.dim || error("Wrong dimensions")
+  x .= d.x[rand(rng, 1:d.n_particles), :]
+end
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::AbstractSamplesMvNormal,
+  x::AbstractMatrix,
+)
+  nDim, nPoints = size(x)
+  nDim == d.dim || error("Wrong dimensions")
+  x .= d.x[rand(rng, 1:d.n_particles, nPoints), :]'
+end
+Distributions.mean(d::AbstractSamplesMvNormal) = d.μ
+Distributions.var(d::AbstractSamplesMvNormal) = var(d.x, dims = 2)
+Distributions.entropy(d::AbstractSamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
+
 struct SamplesMvNormal{
     T,
     Tx<:AbstractMatrix{T},
     Tμ<:AbstractVector{T},
-    TΣ<:AbstractMatrix{T},
 } <: AbstractSamplesMvNormal{T}
     dim::Int
     n_particles::Int
     x::Tx
     μ::Tμ
-    Σ::TΣ
     function SamplesMvNormal(x::M) where {T,M<:AbstractMatrix{T}}
         μ = vec(mean(x, dims = 2))
-        Σ = cov(x, dims = 2)
-        new{T,M,typeof(μ),typeof(Σ)}(size(x)..., x, μ, Σ)
+        new{T,M,typeof(μ)}(size(x)..., x, μ)
     end
     function SamplesMvNormal(
         dim::Int,
         n_particles::Int,
         x::Tx,
         μ::Tμ,
-        Σ::TΣ,
-    ) where {T,Tx<:AbstractMatrix{T},Tμ<:AbstractVector{T},TΣ<:AbstractMatrix{T}}
-        new{T,Tx,Tμ,TΣ}(dim, n_particles, x, μ, Σ)
+    ) where {
+        T,
+        Tx<:AbstractMatrix{T},
+        Tμ<:AbstractVector{T},
+    }
+        new{T,Tx,Tμ}(dim, n_particles, x, μ)
     end
 end
 
 function update_q!(d::SamplesMvNormal)
     d.μ .= vec(mean(d.x, dims = 2))
-    d.Σ .= cov(d.x, dims = 2)
     nothing
 end
+Distributions.cov(d::SamplesMvNormal) = cov(d.x, dims = 2)
 
 @functor SamplesMvNormal
 
 Base.length(d::AbstractSamplesMvNormal) = d.dim
 nParticles(d::AbstractSamplesMvNormal) = d.n_particles
 
-# Random._rand!(d::SteinDistribution, v::AbstractVector) = d.x
-Base.eltype(::AbstractSamplesMvNormal{T}) where {T} = T
-function Distributions._rand!(
-    rng::AbstractRNG,
-    d::AbstractSamplesMvNormal,
-    x::AbstractVector,
-)
-    nDim = length(x)
-    nDim == d.dim || error("Wrong dimensions")
-    x .= d.x[rand(rng, 1:d.n_particles), :]
-end
-function Distributions._rand!(
-    rng::AbstractRNG,
-    d::AbstractSamplesMvNormal,
-    x::AbstractMatrix,
-)
-    nDim, nPoints = size(x)
-    nDim == d.dim || error("Wrong dimensions")
-    x .= d.x[rand(rng, 1:d.n_particles, nPoints), :]'
-end
-Distributions.mean(d::AbstractSamplesMvNormal) = d.μ
-Distributions.cov(d::AbstractSamplesMvNormal) = d.Σ
-Distributions.var(d::AbstractSamplesMvNormal) = diag(d.Σ)
-Distributions.entropy(d::AbstractSamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
-
 struct MFSamplesMvNormal{
     T,
     Tx<:AbstractMatrix{T},
     Ti<:AbstractVector{<:Int},
     Tμ<:AbstractVector{T},
-    TΣ<:AbstractMatrix{T},
 } <: AbstractSamplesMvNormal{T}
     dim::Int
     n_particles::Int
@@ -81,17 +78,13 @@ struct MFSamplesMvNormal{
     id::Ti
     x::Tx
     μ::Tμ
-    Σ::TΣ
     function MFSamplesMvNormal(
         x::M,
         indices::AbstractVector{<:Int},
     ) where {T,M<:AbstractMatrix{T}}
         K = length(indices) - 1
         μ = vec(mean(x, dims = 2))
-        Σ = BlockDiagonal([
-            cov(view(x, (indices[i]+1):indices[i+1], :), dims = 2) for i = 1:K
-        ])
-        new{T,M,typeof(indices),typeof(μ),typeof(Σ)}(size(x)..., K, indices, x, μ, Σ)
+        return new{T,M,typeof(indices),typeof(μ)}(size(x)..., K, indices, x, μ)
     end
     function MFSamplesMvNormal(
         dim::Int,
@@ -100,19 +93,17 @@ struct MFSamplesMvNormal{
         indices::Ti,
         x::Tx,
         μ::Tμ,
-        Σ::TΣ,
-    ) where {T,Tx<:AbstractMatrix{T},Ti,Tμ<:AbstractVector{T},TΣ<:AbstractMatrix{T}}
-        new{T,Tx,Ti,Tμ,TΣ}(dim, n_particles, K, indices, x, μ, Σ)
+    ) where {T,Tx<:AbstractMatrix{T},Ti,Tμ<:AbstractVector{T}}
+        return new{T,Tx,Ti,Tμ}(dim, n_particles, K, indices, x, μ)
     end
 end
 
 function update_q!(d::MFSamplesMvNormal)
     d.μ .= vec(mean(d.x, dims = 2))
-    for i = 1:d.K
-        d.Σ.blocks[i] .= cov(view(d.x, (d.id[i]+1):d.id[i+1], :), dims = 2)
-    end
     nothing
 end
+Distributions.cov(d::MFSamplesMvNormal) =
+    BlockDiagonal([cov(view(d.x, (d.id[i]+1):d.id[i+1], :), dims = 2) for i = 1:d.K])
 
 @functor MFSamplesMvNormal
 
@@ -260,7 +251,7 @@ function optimize!(
         Δ = DiffResults.gradient(diff_result)
 
         Δ₁ .= if alg.precondΔ₁
-            q.dist.Σ * vec(mean(Δ, dims = 2))
+            cov(q.dist) * vec(mean(Δ, dims = 2))
         else
             vec(mean(Δ, dims = 2))
         end
@@ -308,22 +299,10 @@ function compute_cov_part!(
         lmul!(cond * A, Δ₂)
     else
         if q.n_particles < q.dim
-            mul!(
-                Δ₂,
-                Δ,
-                x' * x,
-                Float32(inv(q.n_particles)),
-                -1.0f0,
-            )
-        # If N >> D it's more efficient to compute ϕ xᵀ first
+            mul!(Δ₂, Δ, x' * x, Float32(inv(q.n_particles)), -1.0f0)
+            # If N >> D it's more efficient to compute ϕ xᵀ first
         else
-            mul!(
-                Δ₂,
-                Δ * x',
-                x,
-                Float32(inv(q.n_particles)),
-                -1.0f0,
-            )
+            mul!(Δ₂, Δ * x', x, Float32(inv(q.n_particles)), -1.0f0)
         end
     end
 end
@@ -336,7 +315,7 @@ function compute_cov_part!(
     alg::PFlowVI,
 )
     Δ₂ .= x
-    for i in 1:q.K
+    for i = 1:q.K
         # mul!(Δ₂[q.id[i]+1:q.id[i+1], :], (mean(eachcol(Δ[(q.id[i]+1):q.id[i+1], :]) .* transpose.(eachcol(x[(q.id[i]+1):q.id[i+1], :]))) - I), x[(q.id[i]+1):q.id[i+1], :])
         # mul!(Δ₂[q.id[i]+1:q.id[i+1], :], (mean(eachcol(view(Δ, (q.id[i]+1):q.id[i+1], :)) .* transpose.(eachcol(view(x, (q.id[i]+1):q.id[i+1], :)))) - I), x[(q.id[i]+1):q.id[i+1], :])
         # xview = view(x, (q.id[i]+1):q.id[i+1], :)
@@ -353,7 +332,7 @@ function compute_cov_part!(
                 Float32(inv(q.n_particles)),
                 -1.0f0,
             )
-        # If N >> D it's more efficient to compute ϕ xᵀ first
+            # If N >> D it's more efficient to compute ϕ xᵀ first
         else
             mul!(
                 Δ₂[(q.id[i]+1):q.id[i+1], :],
