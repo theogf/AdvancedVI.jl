@@ -9,7 +9,7 @@ end
 function update(td::TuringDenseMvNormal{<:AbstractVector, <:Cholesky{<:Real, <:BlockDiagonal}}, θ::AbstractArray)
     μ = θ[1:length(td)]
     sizes = vcat(0, first.(blocksizes(td.C.U)))
-    ids = cumsum((sizes .* (sizes .+ 1)) ÷ 2)
+    ids = cumsum((sizes .* (sizes .+ 1)) .÷ 2)
     Σ = θ[(length(td)+1):end]
     Σs = [make_triangular(Σ[(ids[i-1]+1):ids[i]], sizes[i]) for i in 2:length(ids)]
     return update(td, μ, BlockDiagonal(Σs))

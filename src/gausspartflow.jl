@@ -221,7 +221,7 @@ function optimize!(
     samples_per_step = nSamples(alg)
     max_iters = alg.max_iters
 
-    optimizer = if Base.isiterable(typeof(optimizer))
+    optimizer = if optimizer isa AbstractVector #Base.isiterable(typeof(optimizer))
         length(optimizer) == 2 || error("Optimizer should be of size 2 only")
         optimizer
     else
@@ -272,11 +272,10 @@ function optimize!(
         AdvancedVI.DEBUG && @debug "Step $i" Δ
         PROGRESS[] && (ProgressMeter.next!(prog))
 
-        i += 1
-
         if !isnothing(callback)
             callback(i, q, hyperparams)
         end
+        i += 1
     end
 
     return q
