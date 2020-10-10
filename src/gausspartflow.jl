@@ -28,6 +28,11 @@ Distributions.mean(d::AbstractSamplesMvNormal) = d.μ
 Distributions.var(d::AbstractSamplesMvNormal) = var(d.x, dims = 2)
 Distributions.entropy(d::AbstractSamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
 
+function update_q!(d::AbstractSamplesMvNormal)
+    d.μ .= vec(mean(d.x, dims = 2))
+    nothing
+end
+
 struct SamplesMvNormal{
     T,
     Tx<:AbstractMatrix{T},
@@ -55,10 +60,6 @@ struct SamplesMvNormal{
     end
 end
 
-function update_q!(d::SamplesMvNormal)
-    d.μ .= vec(mean(d.x, dims = 2))
-    nothing
-end
 Distributions.cov(d::SamplesMvNormal) = cov(d.x, dims = 2)
 
 @functor SamplesMvNormal
@@ -98,16 +99,42 @@ struct MFSamplesMvNormal{
     end
 end
 
-function update_q!(d::MFSamplesMvNormal)
-    d.μ .= vec(mean(d.x, dims = 2))
-    nothing
-end
 Distributions.cov(d::MFSamplesMvNormal) =
     BlockDiagonal([cov(view(d.x, (d.id[i]+1):d.id[i+1], :), dims = 2) for i = 1:d.K])
 
 @functor MFSamplesMvNormal
 
+struct FullMFSamplesMvNormal{
+    T,
+    Tx<:AbstractMatrix{T},
+    Ti<:AbstractVector{<:Int},
+    Tμ<:AbstractVector{T},
+} <: AbstractSamplesMvNormal{T}
+    dim::Int
+    n_particles::Int
+    x::Tx
+    μ::Tμ
+    function FullMFSamplesMvNormal(
+        x::M,
+    ) where {T,M<:AbstractMatrix{T}}
+        μ = vec(mean(x, dims = 2))
+        return new{T,M,typeof(μ)}(size(x)..., x, μ)
+    end
+    function FullMFSamplesMvNormal(
+        dim::Int,
+        n_particles::Int,
+        x::Tx,
+        μ::Tμ,
+    ) where {T,Tx<:AbstractMatrix{T},Ti,Tμ<:AbstractVector{T}}
+        return new{T,Tx,Tμ}(dim, n_particles, x, μ)
+    end
+end
+
+Distributions.cov(d::FullMFSamplesMvNormal) = Diagonal(var(d.x, dims = 2))
+@functor FullMFSamplesMvNormal
+
 const SampMvNormal = Union{
+    FullMFSamplesMvNormal,
     MFSamplesMvNormal,
     SamplesMvNormal,
     TransformedDistribution{<:AbstractSamplesMvNormal},
@@ -315,9 +342,6 @@ function compute_cov_part!(
 )
     Δ₂ .= x
     for i = 1:q.K
-        # mul!(Δ₂[q.id[i]+1:q.id[i+1], :], (mean(eachcol(Δ[(q.id[i]+1):q.id[i+1], :]) .* transpose.(eachcol(x[(q.id[i]+1):q.id[i+1], :]))) - I), x[(q.id[i]+1):q.id[i+1], :])
-        # mul!(Δ₂[q.id[i]+1:q.id[i+1], :], (mean(eachcol(view(Δ, (q.id[i]+1):q.id[i+1], :)) .* transpose.(eachcol(view(x, (q.id[i]+1):q.id[i+1], :)))) - I), x[(q.id[i]+1):q.id[i+1], :])
-        # xview = view(x, (q.id[i]+1):q.id[i+1], :)
         xview = x[(q.id[i]+1):q.id[i+1], :]
         # Proceed to the operation :
         # (ψ - I) * x == (1/ N (∑ ϕᵢxᵀᵢ) - I) * x == (1/N ϕ xᵀ - I) * x
@@ -341,8 +365,17 @@ function compute_cov_part!(
                 -1.0f0,
             )
         end
-        # mul!(Δ₂[q.id[i]+1:q.id[i+1], :], (mapreduce(mul_trans, +, eachcol(Δ[(q.id[i]+1):q.id[i+1], :]), eachcol(x[(q.id[i]+1):q.id[i+1], :])) / q.n_particles - I), x[(q.id[i]+1):q.id[i+1], :])
     end
+end
+
+function compute_cov_part!(
+    Δ₂::AbstractMatrix,
+    q::FullMFSamplesMvNormal,
+    x::AbstractMatrix,
+    Δ::AbstractMatrix,
+    alg::PFlowVI,
+)
+    Δ₂ .= sum((Δ .*= x), dims = 2) .* x
 end
 
 function (elbo::ELBO)(
