@@ -144,6 +144,7 @@ export
     SteinDistribution,
     SamplesMvNormal,
     MFSamplesMvNormal,
+    FullMFSamplesMvNormal,
     PFlowVI
 
 abstract type VariationalInference{AD} end

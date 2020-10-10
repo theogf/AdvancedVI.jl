@@ -107,7 +107,6 @@ Distributions.cov(d::MFSamplesMvNormal) =
 struct FullMFSamplesMvNormal{
     T,
     Tx<:AbstractMatrix{T},
-    Ti<:AbstractVector{<:Int},
     Tμ<:AbstractVector{T},
 } <: AbstractSamplesMvNormal{T}
     dim::Int
@@ -376,6 +375,7 @@ function compute_cov_part!(
     alg::PFlowVI,
 )
     Δ₂ .= sum((Δ .*= x), dims = 2) .* x
+    Δ₂ ./= q.n_particles
 end
 
 function (elbo::ELBO)(
