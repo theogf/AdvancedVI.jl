@@ -2,7 +2,7 @@ update(td::TransformedDistribution, θ...) = transformed(update(td.dist, θ...),
 
 update(d::TuringDiagMvNormal, μ, σ) = TuringDiagMvNormal(μ, σ)
 function update(td::Union{<:TransformedDistribution{D}, D}, θ::AbstractArray) where {D<:TuringDiagMvNormal}
-    μ, σ = θ[1:length(td)], θ[length(td) + 1:end]
+    μ, σ = θ[1:length(td)], exp.(θ[length(td) + 1:end])
     return update(td, μ, σ)
 end
 
