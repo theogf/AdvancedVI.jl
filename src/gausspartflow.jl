@@ -315,7 +315,6 @@ function compute_cov_part!(
     alg::PFlowVI,
 )
     Δ₂ .= x
-    ψ = mean(eachcol(Δ) .* transpose.(eachcol(x)))
     if alg.precondΔ₂
         A = Δ * x' / q.n_particles - I
         B = inv(q.Σ) # Approximation hessian
