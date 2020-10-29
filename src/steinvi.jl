@@ -11,7 +11,7 @@ struct SteinDistribution{T,M<:AbstractMatrix{T}} <: Distributions.ContinuousMult
         new{T,M}(size(x)..., x)
     end
 end
-﻿
+
 Base.length(d::SteinDistribution) = d.dim
 
 Base.eltype(::SteinDistribution{T}) where {T} = T

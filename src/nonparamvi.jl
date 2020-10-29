@@ -43,7 +43,7 @@ function Distributions._rand!(
     x .= rand(rng, _realize_p(d), nPoints)
 end
 Distributions.mean(d::MvMixtureModel) = mean(d.μ)
-_var(d::MixtureModel) = mean(d.σ²) + mean(d.)
+# _var(d::MixtureModel) = mean(d.σ²) + mean(d.)
 Distributions.cov(d::MvMixtureModel) = mean(d.σ²) * I(length(d)) + mean((d.μ .- mean(d)) .* (d.μ .- mean(d))')
 Distributions.var(d::MvMixtureModel) = mean(d.σ²) * ones(length(d)) + mean(abs2.(d.μ .- mean(d)))
 Distributions.entropy(d::MvMixtureModel) = NaN
@@ -152,7 +152,7 @@ phi(logπ, q, x) = -eval_logπ(logπ, q, x)
 
 qₙ(q, n) = sum(pdf(MvNormal(q.μ[j], (q.σ²[n] + q.σ²[n])), q.μ[n]) for i in 1:q.K)
 function elbo(logπ, q)
-    sum(logπ(q.μ[i])) + q.σ²[i] * trH(logπ, q.μ[i]) + log(qₙ(q, i)) for i in 1:q.K) / q.K
+    sum(logπ(q.μ[i]) + q.σ²[i] * trH(logπ, q.μ[i]) + log(qₙ(q, i)) for i in 1:q.K) / q.K
 end
 
 function elbo_1(logπ, q)
