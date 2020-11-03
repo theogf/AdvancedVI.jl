@@ -263,7 +263,7 @@ function optimize!(
             logπ
         end
 
-        Distributions.rand!(q, x)
+        Distributions.rand!(q, x) # Sample from q
 
         grad!(vo, alg, q, _logπ, x, diff_result, samples_per_step)
 
