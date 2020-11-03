@@ -2,10 +2,11 @@ using AdvancedVI
 const AVI = AdvancedVI
 using Distributions
 using Flux
+using LinearAlgebra
 using ProgressMeter
 
 n_dim = 2
-d_target = MvNormal(0.5 * ones(n_dim), rand(n_dim, n_dim) |> x->x * x')
+d_target = MvNormal(0.5 * ones(n_dim), randn(n_dim, n_dim) |> x->x * x')
 mutable struct RobbinsMonro
     κ::Float64
     τ::Float64
@@ -28,24 +29,35 @@ function Flux.Optimise.apply!(o::RobbinsMonro, x, Δ)
 end
 logπ(x) = logpdf(d_target, x)
 ## Running algorithm
-μ = Vector(mean(d_target))#rand(n_dim)
-Γ = rand(n_dim, n_dim)
+# μ = Vector(mean(d_target))
+μ = rand(n_dim)
+μ = -2 * ones(n_dim)
+Γ = Matrix(1.0 * I(n_dim))
+# Γ = reshape([1.0, 0.5], n_dim, :)
+#rand(n_dim, n_dim)
+nSamples = 10
 q = AVI.LowRankMvNormal(μ, Γ)
-alg = AVI.GaussFlowVI(5, 1, false, false)
+q2 = AVI.SamplesMvNormal(rand(MvNormal(q), nSamples))
+alg = AVI.GaussFlowVI(1, nSamples, false, false)
+alg2 = AVI.PFlowVI(1, false, false)
 opt = Descent(0.001)
-opt = RobbinsMonro(0.99, 20)
+opt = [Descent(0.1), RobbinsMonro(0.99, 50)]
 function MvNormal(q::LowRankMvNormal)
-    MvNormal(mean(q), cov(q))
+    MvNormal(mean(q), cov(q)+ 1e-5I)
 end
 using Plots
 xlin = range(-10, 10, length = 100)
 ylin = range(-10, 10, length = 100)
 a = Animation()
 @showprogress for i in 1:100 
+    contour(xlin, ylin, (x,y)->pdf(d_target, [x,y]), clims = (0, 0.2), color = :red, colorbar = false, title = "i = $i")
+    contour!(xlin, ylin, (x,y)->pdf(MvNormal(q), [x,y]), color = :blue)
+    scatter!(eachrow(q2.x)...)
+    contour!(xlin, ylin, (x,y)->pdf(MvNormal(mean(q2), cov(q2)), [x,y]), color = :green)
     vi(logπ, alg, q, optimizer = opt)
-    contour(xlin, ylin, (x,y)->logpdf(d_target, [x,y]), clims = (-20, 1), color = :red, colorbar = false, title = "i = $i")
-    contour!(xlin, ylin, (x,y)->logpdf(MvNormal(q), [x,y]), color = :blue)
+    vi(logπ, alg2, q2, optimizer = opt)
     frame(a)
 end
 gif(a)
+
 

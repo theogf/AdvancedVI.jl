@@ -13,7 +13,7 @@ function Distributions._rand!(
 ) where {T}
   nDim = length(x)
   nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ + d.Γ * randn(rng, T, nDim)
+  x .= d.μ + d.Γ * randn(rng, T, size(d.Γ, 2))
 end
 function Distributions._rand!(
   rng::AbstractRNG,
@@ -22,7 +22,7 @@ function Distributions._rand!(
 ) where {T}
   nDim, nPoints = size(x)
   nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ .+ d.Γ * randn(rng, T, nDim, nPoints)
+  x .= d.μ .+ d.Γ * randn(rng, T, nDim, size(d.Γ, 2))
 end
 Distributions.mean(d::AbstractLowRankMvNormal) = d.μ
 Distributions.var(d::AbstractLowRankMvNormal) = vec(sum(d.Γ .* d.Γ, dims = 2))
@@ -37,6 +37,7 @@ struct LowRankMvNormal{
     μ::Tμ
     Γ::TΓ
     function LowRankMvNormal(μ::AbstractVector{T}, Γ::AbstractMatrix{T}) where {T}
+        length(μ) == size(Γ, 1) || throw(DimensionMismatch("μ and Γ have incompatible sizes")) 
         new{T,typeof(μ),typeof(Γ)}(length(μ), μ, Γ)
     end
     function LowRankMvNormal(
@@ -48,6 +49,7 @@ struct LowRankMvNormal{
         Tμ<:AbstractVector{T},
         TΓ<:AbstractMatrix{T},
     }
+        length(μ) == size(Γ, 1) || throw(DimensionMismatch("μ and Γ have incompatible sizes")) 
         new{T,Tμ,TΓ}(dim, μ, Γ)
     end
 end
