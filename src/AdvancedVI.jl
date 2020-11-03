@@ -145,6 +145,8 @@ export
     SamplesMvNormal,
     MFSamplesMvNormal,
     FullMFSamplesMvNormal,
+    LowRankMvNormal,
+    GaussFlowVI,
     PFlowVI
 
 abstract type VariationalInference{AD} end
@@ -318,6 +320,7 @@ include("optimisers.jl")
 include("advi.jl")
 include("steinvi.jl")
 include("gausspartflow.jl")
+include("gaussflow.jl")
 include("utils.jl")
 
 # special distributions
