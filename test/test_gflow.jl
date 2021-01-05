@@ -36,18 +36,24 @@ logπ(x) = logpdf(d_target, x)
 # Γ = reshape([1.0, 0.5], n_dim, :)
 #rand(n_dim, n_dim)
 nSamples = 10
-alg = AVI.GaussFlow(1, nSamples, false, false)
-alg2 = AVI.GaussPFlow(1, false, false)
+algs = Dict(
+    # :gflow => AVI.GaussFlow(1, nSamples, false, false),
+    # :gpflow => AVI.GaussPFlow(1, false, false),
+    :dsvi => AVI.DSVI(1, nSamples),
+)
 
-function MvNormal(q::AVI.PosteriorMvNormal)
+function MvNormal(q::AVI.AbstractPosteriorMvNormal)
     MvNormal(mean(q), cov(q)+ 1e-5I)
 end
 
 ## Testing full rank
-q = AVI.LowRankMvNormal(μ, Γ)
-q2 = AVI.SamplesMvNormal(rand(MvNormal(μ, Γ * Γ'), nSamples))
-opt = Descent(0.001)
-opt = [Descent(0.1), RobbinsMonro(0.99, 50)]
+fullqs = Dict(
+    :gflow => AVI.LowRankMvNormal(copy(μ), copy(Γ)),
+    :gpflow => AVI.SamplesMvNormal(rand(MvNormal(μ, Γ * Γ'), nSamples)),
+    :dsvi => AVI.CholMvNormal(copy(μ), cholesky(Γ).L),
+)
+opt = Descent(0.01)
+# opt = [Descent(0.1), RobbinsMonro(0.99, 50)]
 
 using Plots
 xlin = range(-10, 10, length = 100)
@@ -55,11 +61,12 @@ ylin = range(-10, 10, length = 100)
 a = Animation()
 @showprogress for i in 1:100 
     contour(xlin, ylin, (x,y)->pdf(d_target, [x,y]), clims = (0, 0.2), color = :red, colorbar = false, title = "i = $i")
-    contour!(xlin, ylin, (x,y)->pdf(MvNormal(q), [x,y]), color = :blue)
-    scatter!(eachrow(q2.x)...)
-    contour!(xlin, ylin, (x,y)->pdf(MvNormal(mean(q2), cov(q2)), [x,y]), color = :green)
-    vi(logπ, alg, q, optimizer = opt)
-    vi(logπ, alg2, q2, optimizer = opt)
+    for (name, alg) in algs
+        q = fullqs[name]
+        alg isa AVI.GaussPFlow && scatter!(eachrow(q.x)...)
+        contour!(xlin, ylin, (x,y)->pdf(MvNormal(q), [x,y]))
+        AVI.vi(logπ, alg, q, optimizer = opt)
+    end
     frame(a)
 end
 gif(a)
@@ -70,8 +77,11 @@ p2 = contour(xlin, ylin, (x,y)->pdf(MvNormal(q2), [x,y]), color = :blue, colorba
 scatter!(eachrow(rand(q2, 100))..., label="")
 
 ## Testing mean-field
-q = AVI.MFMvNormal(μ, diag(Γ))
-q2 = AVI.MFSamplesMvNormal(rand(MvNormal(μ, Γ * Γ'), nSamples))
+mfqs = Dict(
+    :gflow => AVI.MFMvNormal(copy(μ), diag(Γ)),
+    :gpflow => AVI.MFSamplesMvNormal(rand(MvNormal(μ, Γ * Γ'), nSamples)),
+    :dsvi => AVI.MFMvNormal(copy(μ), diag(Γ)),
+)
 opt = Descent(0.001)
 opt = [Descent(0.1), RobbinsMonro(0.99, 50)]
 
@@ -81,11 +91,12 @@ ylin = range(-10, 10, length = 100)
 a = Animation()
 @showprogress for i in 1:100 
     contour(xlin, ylin, (x,y)->pdf(d_target, [x,y]), clims = (0, 0.2), color = :red, colorbar = false, title = "i = $i")
-    contour!(xlin, ylin, (x,y)->pdf(MvNormal(q), [x,y]), color = :blue)
-    scatter!(eachrow(q2.x)...)
-    contour!(xlin, ylin, (x,y)->pdf(MvNormal(mean(q2), cov(q2)), [x,y]), color = :green)
-    vi(logπ, alg, q, optimizer = opt)
-    vi(logπ, alg2, q2, optimizer = opt)
+    for (name, alg) in algs
+        q = fullqs[name]
+        alg isa AVI.GaussPFlow && scatter!(eachrow(q.x)...)
+        contour!(xlin, ylin, (x,y)->pdf(MvNormal(q), [x,y]))
+        AVI.vi(logπ, alg, q, optimizer = opt)
+    end
     frame(a)
 end
 gif(a)

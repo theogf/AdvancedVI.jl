@@ -1,58 +1,22 @@
 """
-    SteinDistribution(x::AbstractMatrix)
+    SVGD(n_particles = 100, max_iters = 1000)
 
-Distribution entirely defined by its particles. `x` is of dimension `dims` x `n_particles`
+Stein Variational Inference (SVGD) for a given model.
 """
-struct SteinDistribution{T,M<:AbstractMatrix{T}} <: Distributions.ContinuousMultivariateDistribution
-    dim::Int
-    n_particles::Int
-    x::M # Dimensions are nDim x nParticles
-    function SteinDistribution(x::M) where {T, M<: AbstractMatrix{T}}
-        new{T,M}(size(x)..., x)
-    end
-end
-
-Base.length(d::SteinDistribution) = d.dim
-
-Base.eltype(::SteinDistribution{T}) where {T} = T
-
-function Distributions._rand!(rng::AbstractRNG, d::SteinDistribution, x::AbstractVector)
-    nDim = length(x)
-    @assert nDim == d.dim "Wrong dimensions"
-    x .= d.x[:,rand(rng, 1:d.n_particles)]
-end
-function Distributions._rand!(rng::AbstractRNG, d::SteinDistribution, x::AbstractMatrix)
-    nDim, nPoints = size(x)
-    @assert nDim == d.dim "Wrong dimensions"
-    x .= d.x[:,rand(rng, 1:d.n_particles, nPoints)]
-end
-Distributions.mean(d::SteinDistribution) = mean(eachcol(d.x))
-Distributions.cov(d::SteinDistribution) = Distributions.cov(d.x, dims = 2)
-Distributions.var(d::SteinDistribution) = Distributions.var(d.x, dims = 2)
-Distributions.entropy(d::SteinDistribution) = zero(eltype(d)) # Not valid but does not matter for the optimization
-
-
-"""
-    SteinVI(n_particles = 100, max_iters = 1000)
-
-Stein Variational Inference (SteinVI) for a given model.
-"""
-struct SteinVI{AD} <: VariationalInference{AD}
+struct SVGD{AD} <: VariationalInference{AD}
     max_iters::Int        # maximum number of gradient steps used in optimization
     kernel::Kernel
 end
 
-# params(alg::SteinVI) = nothing;#params(alg.kernel)
+SVGD(args...) = SVGD{ADBackend()}(args...)
+SVGD() = SVGD(100, SqExponentialKernel())
 
-SteinVI(args...) = SteinVI{ADBackend()}(args...)
-SteinVI() = SteinVI(100, SqExponentialKernel())
-
-alg_str(::SteinVI) = "SteinVI"
+alg_str(::SVGD) = "SVGD"
 
 vi(
     logπ::Function,
-    alg::SteinVI,
-    q::SteinDistribution;
+    alg::SVGD,
+    q::EmpiricalDistribution;
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
@@ -69,8 +33,8 @@ vi(
 
 function vi(
     logπ::Function,
-    alg::SteinVI,
-    q::TransformedDistribution{<:SteinDistribution};
+    alg::SVGD,
+    q::TransformedDistribution{<:EmpiricalDistribution};
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
@@ -101,8 +65,8 @@ end
 
 function optimize!(
     vo,
-    alg::SteinVI,
-    q::TransformedDistribution{<:SteinDistribution},
+    alg::SVGD,
+    q::TransformedDistribution{<:EmpiricalDistribution},
     logπ;
     optimizer = TruncatedADAGrad(),
     callback = nothing,
@@ -187,8 +151,8 @@ end
 
 function (elbo::ELBO)(
     rng::AbstractRNG,
-    alg::SteinVI,
-    q::TransformedDistribution{<:SteinDistribution},
+    alg::SVGD,
+    q::TransformedDistribution{<:EmpiricalDistribution},
     logπ::Function
 )
 

@@ -1,7 +1,3 @@
-using StatsFuns
-using DistributionsAD
-using Random: AbstractRNG, GLOBAL_RNG
-
 """
     GaussFlow(n_particles = 100, max_iters = 1000)
 
@@ -29,7 +25,7 @@ alg_str(::GaussFlow) = "GaussFlow"
 function vi(
     logπ::Function,
     alg::GaussFlow,
-    q::PosteriorMvNormal;
+    q::AbstractPosteriorMvNormal;
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
@@ -55,8 +51,8 @@ end
 
 function vi(
     logπ::Function,
-    alg::GaussPFlow,
-    q::TransformedDistribution{<:PosteriorMvNormal};
+    alg::GaussFlow,
+    q::TransformedDistribution{<:AbstractPosteriorMvNormal};
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,

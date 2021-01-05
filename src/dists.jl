@@ -1,25 +1,25 @@
 ## Series of variation of the MvNormal distribution, different methods need different parametrizations ##
-abstract type PosteriorMvNormal{T} <:
+abstract type AbstractPosteriorMvNormal{T} <:
               Distributions.ContinuousMultivariateDistribution end
 
-Base.eltype(::PosteriorMvNormal{T}) where {T} = T
-Base.length(d::PosteriorMvNormal) = d.dim
-Distributions.mean(d::PosteriorMvNormal) = d.μ
-rank(d::PosteriorMvNormal) = d.dim
+Base.eltype(::AbstractPosteriorMvNormal{T}) where {T} = T
+Base.length(d::AbstractPosteriorMvNormal) = d.dim
+Distributions.mean(d::AbstractPosteriorMvNormal) = d.μ
+rank(d::AbstractPosteriorMvNormal) = d.dim
 
 function Distributions._rand!(
   rng::AbstractRNG,
-  d::PosteriorMvNormal{T},
+  d::AbstractPosteriorMvNormal{T},
   x::AbstractVecOrMat,
 ) where {T}
     Distributions._rand!(rng, MvNormal(d), x)
 end
 
-Distributions.MvNormal(d::PosteriorMvNormal) = Distributions.MvNormal(mean(d), cov(d))
+Distributions.MvNormal(d::AbstractPosteriorMvNormal) = Distributions.MvNormal(mean(d), cov(d))
 
 ## Series of LowRank representation of the form Σ = Γ * Γ' ##
 abstract type AbstractLowRankMvNormal{T} <:
-              PosteriorMvNormal{T} end
+              AbstractPosteriorMvNormal{T} end
 
 function Distributions._rand!(
   rng::AbstractRNG,
@@ -28,7 +28,7 @@ function Distributions._rand!(
 ) where {T}
   nDim = length(x)
   nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ + d.Γ * randn(rng, T, size(d.Γ, 2))
+  x .= d.μ + d.Γ * randn(rng, T, rank(d))
 end
 
 function Distributions._rand!(
@@ -38,12 +38,38 @@ function Distributions._rand!(
 ) where {T}
   nDim, nPoints = size(x)
   nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ .+ d.Γ * randn(rng, T, nDim, size(d.Γ, 2))
+  x .= d.μ .+ d.Γ * randn(rng, T, rank(d), nPoints)
 end
 
 Distributions.var(d::AbstractLowRankMvNormal) = vec(sum(d.Γ .* d.Γ, dims = 2))
 Distributions.entropy(d::AbstractLowRankMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
 rank(d::AbstractLowRankMvNormal) = size(d.Γ, 2)
+
+## Traditional Cholesky representation where Γ is Lower Triangular
+
+struct CholMvNormal{T, Tμ<:AbstractVector{T}, TΓ<:LowerTriangular{T}} <: AbstractLowRankMvNormal{T}
+    dim::Int
+    μ::Tμ
+    Γ::TΓ
+    function CholMvNormal(μ::AbstractVector{T}, Γ::LowerTriangular{T}) where {T}
+        length(μ) == size(Γ, 1) || throw(DimensionMismatch("μ and Γ have incompatible sizes")) 
+        new{T,typeof(μ),typeof(Γ)}(length(μ), μ, Γ)
+    end
+    function CholMvNormal(
+        dim::Int,
+        μ::Tμ,
+        Γ::TΓ
+    ) where {
+        T,
+        Tμ<:AbstractVector{T},
+        TΓ<:LowerTriangular{T},
+    }
+        length(μ) == size(Γ, 1) || throw(DimensionMismatch("μ and Γ have incompatible sizes")) 
+        new{T,Tμ,TΓ}(dim, μ, Γ)
+    end
+end
+
+Distributions.cov(d::CholMvNormal) = d.Γ * d.Γ'
 
 struct LowRankMvNormal{
     T,
@@ -71,7 +97,7 @@ struct LowRankMvNormal{
     end
 end
 
-Distributions.cov(d::LowRankMvNorma)l = d.Γ * d.Γ'
+Distributions.cov(d::LowRankMvNormal) = d.Γ * d.Γ'
 
 @functor LowRankMvNormal
 
@@ -138,7 +164,7 @@ struct MFMvNormal{
     T,
     Tμ<:AbstractVector{T},
     TΓ<:AbstractVector{T},
-} <: PosteriorMvNormal{T}
+} <: AbstractPosteriorMvNormal{T}
     dim::Int
     μ::Tμ
     Γ::TΓ
@@ -180,9 +206,48 @@ end
 Distributions.cov(d::MFMvNormal) = Diagonal(abs2.(d.Γ))
 @functor MFMvNormal
 
+## Factorized structure from Ong et al. 2017
+"""
+    FCSMvNormal(μ, Γ, D)
+"""
+struct FCSMvNormal{T, Tμ<:AbstractVector{T}, TΓ<:AbstractMatrix{T}, TD<:AbstractVector{T}}
+    <: AbstractPosteriorMvNormal{T}
+    dim::Int
+    μ::Tμ
+    Γ::TΓ
+    D::TD
+    function FCSMvNormal(μ::AbstractVector{T}, Γ::AbstractMatrix{T}, D::AbstractVector{T}) where {T}
+        length(μ) == length(D) || error("Different dimensions between μ and D")
+        new{T,typeof(μ),typeof(Γ),typeof(D)}(length(μ), μ, Γ, D)
+    end
+end
+
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::FCSMvNormal{T},
+  x::AbstractVector,
+  ) where {T}
+  nDim = length(x)
+  nDim == d.dim || error("Wrong dimensions")
+  x .= d.μ + d.Γ .* randn(rng, T, size(d.Γ, 2)) + d.D .* randn(rng, T, nDim)
+end
+
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::FCSMvNormal{T},
+  x::AbstractMatrix,
+) where {T}
+  nDim, nPoints = size(x)
+  nDim == d.dim || error("Wrong dimensions")
+  x .= d.μ + d.Γ .* randn(rng, T, size(d.Γ, 2), nPoints) + d.D .* randn(rng, T, nDim, nPoints)
+end
+
+Distributions.cov(d::FCSMvNormal) = d.Γ * d.Γ' + Diagonal(abs2.(d.D))
+
+
 ## Particle based distributions ##
 abstract type AbstractSamplesMvNormal{T} <:
-              PosteriorMvNormal{T} end
+              AbstractPosteriorMvNormal{T} end
 
 nParticles(d::AbstractSamplesMvNormal) = d.n_particles
 Distributions.mean(d::AbstractSamplesMvNormal) = d.μ
@@ -301,3 +366,33 @@ const SampMvNormal = Union{
     SamplesMvNormal,
     Bijectors.TransformedDistribution{<:AbstractSamplesMvNormal},
 }
+
+"""
+    EmpiricalDistribution(x::AbstractMatrix)
+
+Distribution entirely defined by its particles. `x` is of dimension `dims` x `n_particles`
+"""
+struct EmpiricalDistribution{T,M<:AbstractMatrix{T}} <: AbstractPosteriorMvNormal{T}
+    dim::Int
+    n_particles::Int
+    x::M # Dimensions are nDim x nParticles
+    function EmpiricalDistribution(x::M) where {T, M<: AbstractMatrix{T}}
+        new{T,M}(size(x)..., x)
+    end
+end
+
+nParticles(d::EmpiricalDistribution) = d.n_particles
+function Distributions._rand!(rng::AbstractRNG, d::EmpiricalDistribution, x::AbstractVector)
+    nDim = length(x)
+    @assert nDim == d.dim "Wrong dimensions"
+    x .= d.x[:,rand(rng, 1:d.n_particles)]
+end
+function Distributions._rand!(rng::AbstractRNG, d::EmpiricalDistribution, x::AbstractMatrix)
+    nDim, nPoints = size(x)
+    @assert nDim == d.dim "Wrong dimensions"
+    x .= d.x[:,rand(rng, 1:d.n_particles, nPoints)]
+end
+Distributions.mean(d::EmpiricalDistribution) = vec(mean(d.x, dims=2))
+Distributions.cov(d::EmpiricalDistribution) = Distributions.cov(d.x, dims = 2)
+Distributions.var(d::EmpiricalDistribution) = Distributions.var(d.x, dims = 2)
+Distributions.entropy(d::EmpiricalDistribution) = zero(eltype(d)) # Not valid but does not matter for the optimization

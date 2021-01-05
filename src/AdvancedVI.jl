@@ -1,12 +1,12 @@
 module AdvancedVI
 
-using Random: AbstractRNG
+using Random: AbstractRNG, GLOBAL_RNG
 
 using Distributions, DistributionsAD, Bijectors
 using FastGaussQuadrature
 using BlockDiagonals
 using DocStringExtensions
-
+using StatsFuns
 using ProgressMeter, LinearAlgebra
 
 using KernelFunctions, Distances
@@ -24,8 +24,8 @@ export
     TruncatedADAGrad,
     DecayedADAGrad,
     VariationalInference,
-    SteinVI,
-    SteinDistribution,
+    SVGD,
+    EmpiricalDistribution,
     SamplesMvNormal, BlockMFSamplesMvNormal, MFSamplesMvNormal,
     LowRankMvNormal, BlockMFLowRankMvNormal, MFMvNormal,
     GaussFlow, GaussPFlow
@@ -52,119 +52,15 @@ function __init__()
     end
     @require Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f" begin
         include("compat/zygote.jl")
-        export ZygoteAD
-
-        function AdvancedVI.grad!(
-            vo,
-            alg::VariationalInference{<:AdvancedVI.ZygoteAD},
-            q,
-            model,
-            θ::AbstractVector{<:Real},
-            out::DiffResults.MutableDiffResult,
-            args...
-        )
-            f(θ) = if (q isa Distribution)
-                - vo(alg, update(q, θ), model, args...)
-            else
-                - vo(alg, q(θ), model, args...)
-            end
-            y, back = Zygote.pullback(f, θ)
-            dy = first(back(1.0))
-            DiffResults.value!(out, y)
-            DiffResults.gradient!(out, dy)
-            return out
-        end
-        function grad!(
-            vo,
-            alg::GaussPFlow{<:AdvancedVI.ZygoteAD},
-            q,
-            logπ,
-            θ::AbstractVector{<:Real},
-            out::DiffResults.MutableDiffResult,
-            args...
-        )
-            function logjoint(x)
-                sum(map(axes(x, 2)) do i
-                    # phi(logπ, q, x[:, i])
-                    phi(logπ, q, view(x, :, i))
-                end
-                )
-            end
-            val, back = Zygote.pullback(logjoint, q.dist.x)
-            dy = first(back(1.0))
-            DiffResults.value!(out, val)
-            DiffResults.gradient!(out, dy)
-            return out
-        end
-
     end
     @require ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267" begin
         include("compat/reversediff.jl")
-        export ReverseDiffAD
-
-        function AdvancedVI.grad!(
-            vo,
-            alg::VariationalInference{<:AdvancedVI.ReverseDiffAD{false}},
-            q,
-            model,
-            θ::AbstractVector{<:Real},
-            out::DiffResults.MutableDiffResult,
-            args...
-        )
-            f(θ) = if (q isa Distribution)
-                - vo(alg, update(q, θ), model, args...)
-            else
-                - vo(alg, q(θ), model, args...)
-            end
-            tp = AdvancedVI.tape(f, θ)
-            ReverseDiff.gradient!(out, tp, θ)
-            return out
-        end
-
-        function grad!(
-            vo,
-            alg::GaussPFlow{<:ReverseDiffAD},
-            q,
-            logπ,
-            θ::AbstractVector{<:Real},
-            out::DiffResults.MutableDiffResult,
-            args...
-        )
-            f(x) = sum(mapslices(
-                z -> phi(logπ, q, z),
-                x,
-                dims = 1,
-            ))
-            tp = AdvancedVI.tape(f, q.dist.x)
-            ReverseDiff.gradient!(out, tp, q.dist.x)
-            return out
-        end
-        function grad!(
-            vo,
-            alg::GaussFlowVI{<:ReverseDiffAD},
-            q,
-            logπ,
-            x,
-            out::DiffResults.MutableDiffResult,
-            args...
-        )
-            f(x) = sum(mapslices(
-                z -> phi(logπ, q, z),
-                x,
-                dims = 1,
-            ))
-            tp = AdvancedVI.tape(f, x)
-            ReverseDiff.gradient!(out, tp, x)
-            return out
-        end
     end
     @require Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0" begin
         include("turingmodels.jl")
     end
 
 end
-
-
 
 abstract type VariationalInference{AD} end
 
@@ -336,10 +232,11 @@ include("dists.jl")
 
 # VI algorithms
 include("advi.jl")
-include("steinvi.jl")
-include("gausspartflow.jl")
-include("gaussflow.jl")
 include("adquadvi.jl")
+include("dsvi.jl")
+include("gaussflow.jl")
+include("gausspartflow.jl")
+include("steinvi.jl")
 include("utils.jl")
 
 
