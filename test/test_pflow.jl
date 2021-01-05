@@ -21,7 +21,7 @@ end
 
 max_iter = 400
 m = model(x)
-flowvi = AdvancedVI.PFlowVI(max_iter, true, true)
+flowvi = AdvancedVI.GaussPFlow(max_iter, true, true)
 advi = AdvancedVI.ADVI(10,max_iter)
 # q = AVI.SamplesMvNormal(randn(100,2),[true,false])
 # q = AdvancedVI.vi(m, flowvi, 100, optimizer = ADAGrad(0.1))

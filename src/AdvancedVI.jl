@@ -15,6 +15,21 @@ using ForwardDiff
 using Tracker
 using Functors
 
+export
+    vi,
+    ADVI,
+    ADQuadVI,
+    ELBO,
+    elbo,
+    TruncatedADAGrad,
+    DecayedADAGrad,
+    VariationalInference,
+    SteinVI,
+    SteinDistribution,
+    SamplesMvNormal, BlockMFSamplesMvNormal, MFSamplesMvNormal,
+    LowRankMvNormal, BlockMFLowRankMvNormal, MFMvNormal,
+    GaussFlow, GaussPFlow
+
 @functor TuringDenseMvNormal
 @functor BlockDiagonal
 
@@ -61,7 +76,7 @@ function __init__()
         end
         function grad!(
             vo,
-            alg::PFlowVI{<:AdvancedVI.ZygoteAD},
+            alg::GaussPFlow{<:AdvancedVI.ZygoteAD},
             q,
             logπ,
             θ::AbstractVector{<:Real},
@@ -108,7 +123,7 @@ function __init__()
 
         function grad!(
             vo,
-            alg::PFlowVI{<:ReverseDiffAD},
+            alg::GaussPFlow{<:ReverseDiffAD},
             q,
             logπ,
             θ::AbstractVector{<:Real},
@@ -149,23 +164,7 @@ function __init__()
 
 end
 
-export
-    vi,
-    ADVI,
-    ADQuadVI,
-    ELBO,
-    elbo,
-    TruncatedADAGrad,
-    DecayedADAGrad,
-    VariationalInference,
-    SteinVI,
-    SteinDistribution,
-    SamplesMvNormal,
-    MFSamplesMvNormal,
-    FullMFSamplesMvNormal,
-    LowRankMvNormal,
-    GaussFlowVI,
-    PFlowVI
+
 
 abstract type VariationalInference{AD} end
 
@@ -332,17 +331,17 @@ include("objectives.jl")
 # optimisers
 include("optimisers.jl")
 
-
+# special distributions
+include("dists.jl")
 
 # VI algorithms
 include("advi.jl")
 include("steinvi.jl")
 include("gausspartflow.jl")
 include("gaussflow.jl")
+include("adquadvi.jl")
 include("utils.jl")
 
-# special distributions
 
-include("adquadvi.jl")
 
 end # module

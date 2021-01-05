@@ -3,11 +3,11 @@ using DistributionsAD
 using Random: AbstractRNG, GLOBAL_RNG
 
 """
-    PFlowVI(n_particles = 100, max_iters = 1000)
+    GaussPFlow(n_particles = 100, max_iters = 1000)
 
-Gaussian Particle Flow Inference (PFlowVI) for a given model.
+Gaussian Particle Flow Inference (GaussPFlow) for a given model.
 """
-struct PFlowVI{AD} <: VariationalInference{AD}
+struct GaussPFlow{AD} <: VariationalInference{AD}
     max_iters::Int        # maximum number of gradient steps used in optimization
     precondΔ₁::Bool # Precondition the first gradient (mean)
     precondΔ₂::Bool # Precondition the second gradient (cov)
@@ -15,14 +15,14 @@ end
 
 # params(alg::SteinVI) = nothing;#params(alg.kernel)
 
-PFlowVI(args...) = PFlowVI{ADBackend()}(args...)
-PFlowVI() = PFlowVI(100, true, false)
+GaussPFlow(args...) = GaussPFlow{ADBackend()}(args...)
+GaussPFlow() = GaussPFlow(100, true, false)
 
-alg_str(::PFlowVI) = "PFlowVI"
+alg_str(::GaussPFlow) = "GaussPFlow"
 
 function vi(
     logπ::Function,
-    alg::PFlowVI,
+    alg::GaussPFlow,
     q::AbstractSamplesMvNormal;
     optimizer = TruncatedADAGrad(),
     callback = nothing,
@@ -50,7 +50,7 @@ end
 
 function vi(
     logπ::Function,
-    alg::PFlowVI,
+    alg::GaussPFlow,
     q::TransformedDistribution{<:AbstractSamplesMvNormal};
     optimizer = TruncatedADAGrad(),
     callback = nothing,
@@ -78,10 +78,10 @@ end
 
 function grad!(
     vo,
-    alg::PFlowVI{<:ForwardDiffAD},
+    alg::GaussPFlow{<:ForwardDiffAD},
     q,
     logπ,
-    θ::AbstractVector{<:Real},
+    ::AbstractVector{<:Real},
     out::DiffResults.MutableDiffResult,
     args...,
 )
@@ -97,7 +97,7 @@ phi(logπ, q, x) = -eval_logπ(logπ, q, x)
 
 function optimize!(
     vo,
-    alg::PFlowVI,
+    alg::GaussPFlow,
     q::SampMvNormal,
     logπ,
     θ::AbstractVector{<:Real};
@@ -175,31 +175,31 @@ function compute_cov_part!(
     q::SamplesMvNormal,
     x::AbstractMatrix,
     Δ::AbstractMatrix,
-    alg::PFlowVI,
+    alg::GaussPFlow,
 )
     Δ₂ .= x
     if alg.precondΔ₂
-        A = Δ * x' / q.n_particles - I
+        A = Δ * x' / nParticles(q) - I
         B = inv(q.Σ) # Approximation hessian
         # B = Δ * Δ' # Gauss-Newton approximation
         cond = tr(A' * A) / (tr(A^2) + tr(A' * B * A * q.Σ))
         lmul!(cond * A, Δ₂)
     else
-        if q.n_particles < q.dim
-            mul!(Δ₂, Δ, x' * x, Float32(inv(q.n_particles)), -1.0f0)
+        if nParticles(q) < q.dim
+            mul!(Δ₂, Δ, x' * x, Float32(inv(nParticles(q))), -1.0f0)
             # If N >> D it's more efficient to compute ϕ xᵀ first
         else
-            mul!(Δ₂, Δ * x', x, Float32(inv(q.n_particles)), -1.0f0)
+            mul!(Δ₂, Δ * x', x, Float32(inv(nParticles(q))), -1.0f0)
         end
     end
 end
 
 function compute_cov_part!(
     Δ₂::AbstractMatrix,
-    q::MFSamplesMvNormal,
+    q::BlockMFSamplesMvNormal,
     x::AbstractMatrix,
     Δ::AbstractMatrix,
-    alg::PFlowVI,
+    ::GaussPFlow,
 )
     Δ₂ .= x
     for i = 1:q.K
@@ -213,7 +213,7 @@ function compute_cov_part!(
                 Δ₂[(q.id[i]+1):q.id[i+1], :],
                 Δ[(q.id[i]+1):q.id[i+1], :],
                 xview' * xview,
-                Float32(inv(q.n_particles)),
+                Float32(inv(nParticles(q))),
                 -1.0f0,
             )
             # If N >> D it's more efficient to compute ϕ xᵀ first
@@ -222,7 +222,7 @@ function compute_cov_part!(
                 Δ₂[(q.id[i]+1):q.id[i+1], :],
                 Δ[(q.id[i]+1):q.id[i+1], :] * xview',
                 xview,
-                Float32(inv(q.n_particles)),
+                Float32(inv(nParticles(q))),
                 -1.0f0,
             )
         end
@@ -231,28 +231,22 @@ end
 
 function compute_cov_part!(
     Δ₂::AbstractMatrix,
-    q::FullMFSamplesMvNormal,
+    q::MFSamplesMvNormal,
     x::AbstractMatrix,
     Δ::AbstractMatrix,
-    alg::PFlowVI,
+    ::GaussPFlow,
 )
-    Δ₂ .= sum((Δ .*= x), dims = 2) .* x
-    Δ₂ ./= q.n_particles
+    ## Multiply g by x, and take the diagonal, then multiply by
+    Δ₂ .= (sum((Δ .*= x), dims=2) / nParticles(q) .- 1) .* x 
 end
 
 function (elbo::ELBO)(
-    rng::AbstractRNG,
-    alg::PFlowVI,
+    ::AbstractRNG,
+    ::GaussPFlow,
     q::TransformedDistribution{<:SamplesMvNormal},
     logπ::Function,
 )
-
     res = sum(mapslices(x -> -phi(logπ, q, x), q.dist.x, dims = 1))
-
-    if q isa TransformedDistribution
-        res += entropy(q.dist)
-    else
-        res += entropy(q)
-    end
+    res += entropy(q.dist)
     return res
 end

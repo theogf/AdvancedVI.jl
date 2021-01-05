@@ -8,7 +8,7 @@ function vi(model::Turing.Model, alg::SteinVI, n_particles::Int ; optimizer = Tr
     vi(logπ, alg, q; optimizer = optimizer, callback = callback)
 end
 
-function vi(model::Turing.Model, alg::PFlowVI, n_particles::Int ; optimizer = TruncatedADAGrad(), callback = nothing)
+function vi(model::Turing.Model, alg::GaussPFlow, n_particles::Int ; optimizer = TruncatedADAGrad(), callback = nothing)
     logπ = Turing.Variational.make_logjoint(model)
     nVars = sum(length(v.ranges) for v in values(Turing.VarInfo(model).metadata))
     

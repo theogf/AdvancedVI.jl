@@ -8,7 +8,7 @@ rank(d::PosteriorMvNormal) = d.dim
 
 ## Series of LowRank representation of the form Σ = Γ * Γ' ##
 abstract type AbstractLowRankMvNormal{T} <:
-              PosteriorMvNormal end
+              PosteriorMvNormal{T} end
 
 function Distributions._rand!(
   rng::AbstractRNG,
@@ -98,7 +98,7 @@ end
 
 function Distributions._rand!(
   rng::AbstractRNG,
-  d::AbstractLowRankMvNormal{T},
+  d::BlockMFLowRankMvNormal{T},
   x::AbstractVector,
 ) where {T}
   nDim = length(x)
@@ -108,7 +108,7 @@ end
 
 function Distributions._rand!(
   rng::AbstractRNG,
-  d::AbstractLowRankMvNormal{T},
+  d::BlockMFLowRankMvNormal{T},
   x::AbstractMatrix,
 ) where {T}
   nDim, nPoints = size(x)
@@ -151,7 +151,7 @@ Distributions.cov(d::MFMvNormal) = Diagonal(abs2.(d.Γ))
 
 ## Particle based distributions ##
 abstract type AbstractSamplesMvNormal{T} <:
-              PosteriorMvNormal end
+              PosteriorMvNormal{T} end
 
 function Distributions._rand!(
   rng::AbstractRNG,
@@ -160,7 +160,7 @@ function Distributions._rand!(
 )
   nDim = length(x)
   nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ .+ (d.x .- d.μ)' * randn(rng, nDim) / nParticles(d)
+  x .= d.μ .+ (d.x .- d.μ)' * randn(rng, nDim) / sqrt(nParticles(d))
 end
 
 function Distributions._rand!(
@@ -170,7 +170,7 @@ function Distributions._rand!(
 )
   nDim, nPoints = size(x)
   nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ .+ (d.x .- d.μ)' * randn(rng, nDim, nPoints) / nParticles(d)
+  x .= d.μ .+ (d.x .- d.μ)' * randn(rng, nDim, nPoints) / sqrt(nParticles(d))
 end
 Base.length(d::AbstractSamplesMvNormal) = d.dim
 nParticles(d::AbstractSamplesMvNormal) = d.n_particles
@@ -251,7 +251,7 @@ struct BlockMFSamplesMvNormal{
     end
 end
 
-Distributions.cov(d::BlockSamplesMvNormal) =
+Distributions.cov(d::BlockMFSamplesMvNormal) =
     BlockDiagonal([cov(view(d.x, (d.id[i]+1):d.id[i+1], :), dims = 2) for i = 1:d.K])
 
 @functor BlockMFSamplesMvNormal
@@ -288,5 +288,5 @@ const SampMvNormal = Union{
     MFSamplesMvNormal,
     BlockMFSamplesMvNormal,
     SamplesMvNormal,
-    TransformedDistribution{<:AbstractSamplesMvNormal},
+    Bijectors.TransformedDistribution{<:AbstractSamplesMvNormal},
 }

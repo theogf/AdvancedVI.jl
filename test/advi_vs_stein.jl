@@ -41,7 +41,7 @@ steinvi = AVI.SteinVI(max_iters, transform(SqExponentialKernel(), 1.0))
 steinq =
     AVI.SteinDistribution(rand(Normal(mu_init, sqrt(sig_init)), 1, nParticles))
 
-gaussvi = AVI.PFlowVI(max_iters, false, true)
+gaussvi = AVI.GaussPFlow(max_iters, false, true)
 gaussq = SamplesMvNormal(rand(Normal(mu_init, sqrt(sig_init)),1,nParticles))
 # gaussq = AVI.transformed(SamplesMvNormal(rand(Normal(mu_init, sqrt(sig_init)),1,nParticles)),AVI.Bijectors.Identity{1}())
 

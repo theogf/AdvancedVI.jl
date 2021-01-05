@@ -14,9 +14,9 @@ mutable struct RobbinsMonro
 end
   
 function RobbinsMonro(κ::Real = 0.51, τ::Real = 1)
-@assert 0.5 < κ <= 1 "κ should be in the interval (0.5,1]"
-@assert τ > 0 "τ should be positive"
-RobbinsMonro(κ, τ, IdDict())
+    @assert 0.5 < κ <= 1 "κ should be in the interval (0.5,1]"
+    @assert τ > 0 "τ should be positive"
+    RobbinsMonro(κ, τ, IdDict())
 end
 
 function Flux.Optimise.apply!(o::RobbinsMonro, x, Δ)
@@ -39,7 +39,7 @@ nSamples = 10
 q = AVI.LowRankMvNormal(μ, Γ)
 q2 = AVI.SamplesMvNormal(rand(MvNormal(q), nSamples))
 alg = AVI.GaussFlowVI(1, nSamples, false, false)
-alg2 = AVI.PFlowVI(1, false, false)
+alg2 = AVI.GaussPFlow(1, false, false)
 opt = Descent(0.001)
 opt = [Descent(0.1), RobbinsMonro(0.99, 50)]
 function MvNormal(q::LowRankMvNormal)
