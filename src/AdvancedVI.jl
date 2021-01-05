@@ -342,7 +342,6 @@ include("gaussflow.jl")
 include("utils.jl")
 
 # special distributions
-include("meanfield.jl")
 
 include("adquadvi.jl")
 

@@ -2,140 +2,14 @@ using StatsFuns
 using DistributionsAD
 using Random: AbstractRNG, GLOBAL_RNG
 
-abstract type AbstractLowRankMvNormal{T} <:
-              Distributions.ContinuousMultivariateDistribution end
-
-Base.eltype(::AbstractLowRankMvNormal{T}) where {T} = T
-function Distributions._rand!(
-  rng::AbstractRNG,
-  d::AbstractLowRankMvNormal{T},
-  x::AbstractVector,
-) where {T}
-  nDim = length(x)
-  nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ + d.Γ * randn(rng, T, size(d.Γ, 2))
-end
-function Distributions._rand!(
-  rng::AbstractRNG,
-  d::AbstractLowRankMvNormal{T},
-  x::AbstractMatrix,
-) where {T}
-  nDim, nPoints = size(x)
-  nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ .+ d.Γ * randn(rng, T, nDim, size(d.Γ, 2))
-end
-Distributions.mean(d::AbstractLowRankMvNormal) = d.μ
-Distributions.var(d::AbstractLowRankMvNormal) = vec(sum(d.Γ .* d.Γ, dims = 2))
-Distributions.entropy(d::AbstractLowRankMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
-
-struct LowRankMvNormal{
-    T,
-    Tμ<:AbstractVector{T},
-    TΓ<:AbstractMatrix{T},
-} <: AbstractLowRankMvNormal{T}
-    dim::Int
-    μ::Tμ
-    Γ::TΓ
-    function LowRankMvNormal(μ::AbstractVector{T}, Γ::AbstractMatrix{T}) where {T}
-        length(μ) == size(Γ, 1) || throw(DimensionMismatch("μ and Γ have incompatible sizes")) 
-        new{T,typeof(μ),typeof(Γ)}(length(μ), μ, Γ)
-    end
-    function LowRankMvNormal(
-        dim::Int,
-        μ::Tμ,
-        Γ::TΓ
-    ) where {
-        T,
-        Tμ<:AbstractVector{T},
-        TΓ<:AbstractMatrix{T},
-    }
-        length(μ) == size(Γ, 1) || throw(DimensionMismatch("μ and Γ have incompatible sizes")) 
-        new{T,Tμ,TΓ}(dim, μ, Γ)
-    end
-end
-
-Distributions.cov(d::LowRankMvNormal) = d.Γ * d.Γ'
-
-@functor LowRankMvNormal
-
-Base.length(d::AbstractLowRankMvNormal) = d.dim
-
-# struct MFLowRankMvNormal{
-#     T,
-#     Tx<:AbstractMatrix{T},
-#     Ti<:AbstractVector{<:Int},
-#     Tμ<:AbstractVector{T},
-# } <: AbstractSamplesMvNormal{T}
-#     dim::Int
-#     n_particles::Int
-#     K::Int
-#     id::Ti
-#     x::Tx
-#     μ::Tμ
-#     function MFSamplesMvNormal(
-#         x::M,
-#         indices::AbstractVector{<:Int},
-#     ) where {T,M<:AbstractMatrix{T}}
-#         K = length(indices) - 1
-#         μ = vec(mean(x, dims = 2))
-#         return new{T,M,typeof(indices),typeof(μ)}(size(x)..., K, indices, x, μ)
-#     end
-#     function MFSamplesMvNormal(
-#         dim::Int,
-#         n_particles::Int,
-#         K::Int,
-#         indices::Ti,
-#         x::Tx,
-#         μ::Tμ,
-#     ) where {T,Tx<:AbstractMatrix{T},Ti,Tμ<:AbstractVector{T}}
-#         return new{T,Tx,Ti,Tμ}(dim, n_particles, K, indices, x, μ)
-#     end
-# end
-
-# Distributions.cov(d::MFSamplesMvNormal) =
-#     BlockDiagonal([cov(view(d.x, (d.id[i]+1):d.id[i+1], :), dims = 2) for i = 1:d.K])
-
-# @functor MFSamplesMvNormal
-
-# struct FullMFSamplesMvNormal{
-#     T,
-#     Tx<:AbstractMatrix{T},
-#     Tμ<:AbstractVector{T},
-# } <: AbstractSamplesMvNormal{T}
-#     dim::Int
-#     n_particles::Int
-#     x::Tx
-#     μ::Tμ
-#     function FullMFSamplesMvNormal(
-#         x::M,
-#     ) where {T,M<:AbstractMatrix{T}}
-#         μ = vec(mean(x, dims = 2))
-#         return new{T,M,typeof(μ)}(size(x)..., x, μ)
-#     end
-#     function FullMFSamplesMvNormal(
-#         dim::Int,
-#         n_particles::Int,
-#         x::Tx,
-#         μ::Tμ,
-#     ) where {T,Tx<:AbstractMatrix{T},Ti,Tμ<:AbstractVector{T}}
-#         return new{T,Tx,Tμ}(dim, n_particles, x, μ)
-#     end
-# end
-
-# Distributions.cov(d::FullMFSamplesMvNormal) = Diagonal(var(d.x, dims = 2))
-# @functor FullMFSamplesMvNormal
-
-const LRMvNormal = Union{
-    #FullMFSamplesMvNormal,
-    #MFSamplesMvNormal,
-    LowRankMvNormal,
-    TransformedDistribution{<:AbstractLowRankMvNormal},
-}
-
 """
     GaussFlowVI(n_particles = 100, max_iters = 1000)
 
 Gaussian Particle Flow Inference (PFlowVI) for a given model.
+Can only work on the following distributions:
+ - `LowRankMvNormal`
+ - `MFMvNormal`
+ - `BlockMFMvNormal`
 """
 struct GaussFlowVI{AD} <: VariationalInference{AD}
     max_iters::Int        # maximum number of gradient steps used in optimization

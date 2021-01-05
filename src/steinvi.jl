@@ -26,11 +26,8 @@ function Distributions._rand!(rng::AbstractRNG, d::SteinDistribution, x::Abstrac
     @assert nDim == d.dim "Wrong dimensions"
     x .= d.x[:,rand(rng, 1:d.n_particles, nPoints)]
 end
-Distributions.mean(d::TransformedDistribution{<:SteinDistribution}) = d.transform(mean(d.dist))
 Distributions.mean(d::SteinDistribution) = mean(eachcol(d.x))
-#Distributions.cov(d::TransformedDistribution{<:SteinDistribution}) = cov(d.dist)
 Distributions.cov(d::SteinDistribution) = Distributions.cov(d.x, dims = 2)
-#Distributions.var(d::TransformedDistribution{<:SteinDistribution}) = var(d.dist)
 Distributions.var(d::SteinDistribution) = Distributions.var(d.x, dims = 2)
 Distributions.entropy(d::SteinDistribution) = zero(eltype(d)) # Not valid but does not matter for the optimization
 
