@@ -8,8 +8,8 @@ using Flux
 x = randn(2000)
 
 @model model(x) = begin
-    s ~ InverseGamma(2, 3)
-    m ~ Normal(0.0, sqrt(s))
+    s ~ LogNormal(2, 3)
+    m ~ Normal(0.0, s)
     for i = 1:length(x)
         x[i] ~ Normal(m, sqrt(s))
     end
@@ -23,7 +23,7 @@ k = transform(SqExponentialKernel(),1.0)
 m = model(x)
 Turing.VarInfo(m).metadata
 steinvi = AdvancedVI.SteinVI(max_iter, k)
-q = AVI.SteinDistribution(randn(100,2),[true,false])
+q = AVI.SteinDistribution(randn(100,2))
 q = AdvancedVI.vi(m, steinvi, 100, optimizer = ADAGrad(0.1))
 @profiler q = AdvancedVI.vi(m, steinvi, 100, optimizer = ADAGrad(0.1))
 mean(q)
