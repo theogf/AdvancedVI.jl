@@ -3,8 +3,19 @@ abstract type PosteriorMvNormal{T} <:
               Distributions.ContinuousMultivariateDistribution end
 
 Base.eltype(::PosteriorMvNormal{T}) where {T} = T
+Base.length(d::PosteriorMvNormal) = d.dim
 Distributions.mean(d::PosteriorMvNormal) = d.μ
 rank(d::PosteriorMvNormal) = d.dim
+
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::PosteriorMvNormal{T},
+  x::AbstractVecOrMat,
+) where {T}
+    Distributions._rand!(rng, MvNormal(d), x)
+end
+
+Distributions.MvNormal(d::PosteriorMvNormal) = Distributions.MvNormal(mean(d), cov(d))
 
 ## Series of LowRank representation of the form Σ = Γ * Γ' ##
 abstract type AbstractLowRankMvNormal{T} <:
@@ -60,7 +71,7 @@ struct LowRankMvNormal{
     end
 end
 
-Distributions.cov(d::LowRankMvNormal) = d.Γ * d.Γ'
+Distributions.cov(d::LowRankMvNorma)l = d.Γ * d.Γ'
 
 @functor LowRankMvNormal
 
@@ -146,6 +157,26 @@ struct MFMvNormal{
     end
 end
 
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::MFMvNormal{T},
+  x::AbstractVector,
+  ) where {T}
+  nDim = length(x)
+  nDim == d.dim || error("Wrong dimensions")
+  x .= d.μ + d.Γ .* randn(rng, T, nDim)
+end
+
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::MFMvNormal{T},
+  x::AbstractMatrix,
+) where {T}
+  nDim, nPoints = size(x)
+  nDim == d.dim || error("Wrong dimensions")
+  x .= d.μ .+ d.Γ .* randn(rng, T, nDim, nPoints)
+end
+
 Distributions.cov(d::MFMvNormal) = Diagonal(abs2.(d.Γ))
 @functor MFMvNormal
 
@@ -153,26 +184,6 @@ Distributions.cov(d::MFMvNormal) = Diagonal(abs2.(d.Γ))
 abstract type AbstractSamplesMvNormal{T} <:
               PosteriorMvNormal{T} end
 
-function Distributions._rand!(
-  rng::AbstractRNG,
-  d::AbstractSamplesMvNormal,
-  x::AbstractVector,
-)
-  nDim = length(x)
-  nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ .+ (d.x .- d.μ)' * randn(rng, nDim) / sqrt(nParticles(d))
-end
-
-function Distributions._rand!(
-  rng::AbstractRNG,
-  d::AbstractSamplesMvNormal,
-  x::AbstractMatrix,
-)
-  nDim, nPoints = size(x)
-  nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ .+ (d.x .- d.μ)' * randn(rng, nDim, nPoints) / sqrt(nParticles(d))
-end
-Base.length(d::AbstractSamplesMvNormal) = d.dim
 nParticles(d::AbstractSamplesMvNormal) = d.n_particles
 Distributions.mean(d::AbstractSamplesMvNormal) = d.μ
 Distributions.var(d::AbstractSamplesMvNormal) = var(d.x, dims = 2)
@@ -281,7 +292,7 @@ struct MFSamplesMvNormal{
     end
 end
 
-Distributions.cov(d::MFSamplesMvNormal) = Diagonal(var(d.x, dims = 2))
+Distributions.cov(d::MFSamplesMvNormal) = Diagonal(vec(var(d.x, dims = 2)))
 @functor MFSamplesMvNormal
 
 const SampMvNormal = Union{

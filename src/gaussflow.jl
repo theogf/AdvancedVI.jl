@@ -224,7 +224,7 @@ function compute_cov_part!(
 end
 
 function compute_cov_part!(
-    ΔΓ::AbstractMatrix,
+    ΔΓ::AbstractVector,
     q::MFMvNormal,
     x::AbstractMatrix,
     Δ::AbstractMatrix,
