@@ -29,6 +29,7 @@ function Flux.Optimise.apply!(o::RobbinsMonro, x, Δ)
 end
 logπ(x) = logpdf(d_target, x)
 ## Running algorithm
+AVI.setadbackend(:forward_diff)
 # μ = Vector(mean(d_target))
 μ = rand(n_dim)
 μ = -2 * ones(n_dim)
@@ -37,9 +38,10 @@ logπ(x) = logpdf(d_target, x)
 #rand(n_dim, n_dim)
 S = 3
 algs = Dict(
-    :gflow => AVI.GaussFlow(1, S, false, false),
-    :gpflow => AVI.GaussPFlow(1, true, false),
-    :dsvi => AVI.DSVI(1, S),
+    # :gflow => AVI.GaussFlow(1, S, false, false),
+    # :gpflow => AVI.GaussPFlow(1, true, false),
+    # :dsvi => AVI.DSVI(1, S),
+    :iblr => AVI.IBLR(1, S),
 )
 
 function MvNormal(q::AVI.AbstractPosteriorMvNormal)
@@ -51,6 +53,7 @@ fullqs = Dict(
     :gflow => AVI.LowRankMvNormal(copy(μ), copy(Γ)),
     :gpflow => AVI.SamplesMvNormal(rand(MvNormal(μ, Γ * Γ'), S)),
     :dsvi => AVI.CholMvNormal(copy(μ), cholesky(Γ).L),
+    :iblr => AVI.PrecisionMvNormal(copy(μ), inv(Γ))
 )
 opt = Descent(0.1)
 # opt = [Descent(0.1), RobbinsMonro(0.99, 50)]

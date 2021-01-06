@@ -24,11 +24,12 @@ export
     TruncatedADAGrad,
     DecayedADAGrad,
     VariationalInference,
-    SVGD,
+    SVGD, IBLR, DSVI,
+    GaussFlow, GaussPFlow,
     EmpiricalDistribution,
     SamplesMvNormal, BlockMFSamplesMvNormal, MFSamplesMvNormal,
     LowRankMvNormal, BlockMFLowRankMvNormal, MFMvNormal,
-    GaussFlow, GaussPFlow
+    PrecisionMvNormal, CholMvNormal
 
 @functor TuringDenseMvNormal
 @functor BlockDiagonal
@@ -236,6 +237,7 @@ include("adquadvi.jl")
 include("dsvi.jl")
 include("gaussflow.jl")
 include("gausspartflow.jl")
+include("iblr.jl")
 include("steinvi.jl")
 include("utils.jl")
 

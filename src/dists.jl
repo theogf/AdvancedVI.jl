@@ -80,6 +80,85 @@ end
 
 Distributions.cov(d::CholMvNormal) = d.Γ * d.Γ'
 
+## Representation via the precision matrix as in Lin et al. 2020 
+
+struct PrecisionMvNormal{T, Tμ<:AbstractVector{T}, TS<:AbstractMatrix{T}} <: AbstractLowRankMvNormal{T}
+    dim::Int
+    μ::Tμ
+    S::TS
+    function PrecisionMvNormal(μ::AbstractVector{T}, S::AbstractMatrix{T}) where {T}
+        length(μ) == size(S, 1) || throw(DimensionMismatch("μ and S have incompatible sizes")) 
+        new{T,typeof(μ),typeof(S)}(length(μ), μ, S)
+    end
+    function PrecisionMvNormal(
+        dim::Int,
+        μ::Tμ,
+        S::TS
+    ) where {
+        T,
+        Tμ<:AbstractVector{T},
+        TS<:AbstractMatrix{T},
+    }
+        length(μ) == size(S, 1) || throw(DimensionMismatch("μ and S have incompatible sizes")) 
+        new{T,Tμ,TS}(dim, μ, S)
+    end
+end
+
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::PrecisionMvNormal,
+  x::AbstractVector,
+)
+  Distributions._rand!(rng, MvNormalCanon(d.S * d.μ, d.S), x)
+end
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::PrecisionMvNormal,
+  x::AbstractMatrix,
+)
+  Distributions._rand!(rng, MvNormalCanon(d.S * d.μ, d.S), x)
+end
+Distributions.cov(d::PrecisionMvNormal) = inv(d.S)
+
+struct DiagPrecisionMvNormal{T, Tμ<:AbstractVector{T}, TS<:AbstractVector{T}} <: AbstractLowRankMvNormal{T}
+    dim::Int
+    μ::Tμ
+    S::TS
+    function DiagPrecisionMvNormal(μ::AbstractVector{T}, S::AbstractVector{T}) where {T}
+        length(μ) == size(S, 1) || throw(DimensionMismatch("μ and S have incompatible sizes")) 
+        new{T,typeof(μ),typeof(S)}(length(μ), μ, S)
+    end
+    function DiagPrecisionMvNormal(
+        dim::Int,
+        μ::Tμ,
+        S::TS
+    ) where {
+        T,
+        Tμ<:AbstractVector{T},
+        TS<:AbstractVector{T},
+    }
+        length(μ) == size(S, 1) || throw(DimensionMismatch("μ and S have incompatible sizes")) 
+        new{T,Tμ,TS}(dim, μ, S)
+    end
+end
+
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::DiagPrecisionMvNormal,
+  x::AbstractVector,
+)
+  Distributions._rand!(rng, MvNormalCanon(d.S .* d.μ, d.S), x)
+end
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::DiagPrecisionMvNormal,
+  x::AbstractMatrix,
+)
+  Distributions._rand!(rng, MvNormalCanon(d.S .* d.μ, d.S), x)
+end
+Distributions.cov(d::DiagPrecisionMvNormal) = Diagonal(inv.(d.S))
+
+
 struct LowRankMvNormal{
     T,
     Tμ<:AbstractVector{T},
@@ -236,7 +315,7 @@ function Distributions._rand!(
   x::AbstractVector,
   ) where {T}
   nDim = length(x)
-  nDim == d.dim || error("Wrong dimensions")
+  nDim == dim(d) || error("Wrong dimensions")
   x .= d.μ + d.Γ .* randn(rng, T, size(d.Γ, 2)) + d.D .* randn(rng, T, nDim)
 end
 
@@ -251,7 +330,6 @@ function Distributions._rand!(
 end
 
 Distributions.cov(d::FCSMvNormal) = d.Γ * d.Γ' + Diagonal(abs2.(d.D))
-
 
 ## Particle based distributions ##
 abstract type AbstractSamplesMvNormal{T} <:
@@ -404,3 +482,22 @@ Distributions.mean(d::EmpiricalDistribution) = vec(mean(d.x, dims=2))
 Distributions.cov(d::EmpiricalDistribution) = Distributions.cov(d.x, dims = 2)
 Distributions.var(d::EmpiricalDistribution) = Distributions.var(d.x, dims = 2)
 Distributions.entropy(d::EmpiricalDistribution) = zero(eltype(d)) # Not valid but does not matter for the optimization
+
+
+## Reparametrization methods for sampling
+
+function reparametrize!(x, q::PrecisionMvNormal, z)
+    x .= q.μ .+ cholesky(q).L \ z
+end
+
+function reparametrize!(x, q::DiagPrecisionMvNormal, z)
+    x .= q.μ .+ sqrt.(inv.(q.S)) .* z
+end
+
+function reparametrize!(x, q::CholMvNormal, z)
+    x .= q.μ .+ q.Γ * z
+end
+
+function reparametrize!(x, q::MFMvNormal, z)
+    x .= q.μ .+ q.Γ .* z
+end

@@ -1,27 +1,28 @@
 """
-    DSVI(n_particles = 100, max_iters = 1000)
+    IBLR(n_particles = 100, max_iters = 1000)
 
-Doubly Stochastic Variational Inference (DSVI) for a given model.
+iBayes Learning Rule (IBLR) for a given model.
 Can only work on the following distributions:
- - `CholMvNormal`
+ - `Precision`
  - `MFMvNormal`
 """
-struct DSVI{AD} <: VariationalInference{AD}
+struct IBLR{AD} <: VariationalInference{AD}
     max_iters::Int        # maximum number of gradient steps used in optimization
     nSamples::Int   # Number of samples per expectation
+    hess_comp::Symbol
 end
 
 # params(alg::SteinVI) = nothing;#params(alg.kernel)
 
-DSVI(args...) = DSVI{ADBackend()}(args...)
-DSVI() = DSVI(100, 10)
-nSamples(alg::DSVI) = alg.nSamples
+IBLR(args...) = IBLR{ADBackend()}(args...)
+IBLR() = IBLR(100, 10, :hess)
+nSamples(alg::IBLR) = alg.nSamples
 
-alg_str(::DSVI) = "DSVI"
+alg_str(::IBLR) = "IBLR"
 
 function vi(
     logπ::Function,
-    alg::DSVI,
+    alg::IBLR,
     q::AbstractPosteriorMvNormal;
     optimizer = TruncatedADAGrad(),
     callback = nothing,
@@ -48,7 +49,7 @@ end
 
 function vi(
     logπ::Function,
-    alg::DSVI,
+    alg::IBLR,
     q::TransformedDistribution{<:AbstractPosteriorMvNormal};
     optimizer = TruncatedADAGrad(),
     callback = nothing,
@@ -75,7 +76,7 @@ end
 
 function grad!(
     vo,
-    alg::DSVI{<:ForwardDiffAD},
+    alg::IBLR{<:ForwardDiffAD},
     q,
     logπ,
     x,
@@ -90,9 +91,26 @@ function grad!(
     ForwardDiff.gradient!(out, f, x, config)
 end
 
+function hessian!( # Does not work currently... 
+    vo,
+    alg::IBLR{<:ForwardDiffAD},
+    q,
+    logπ,
+    x,
+    out::AbstractVector{<:DiffResults.MutableDiffResult},
+    args...,
+)
+    f(x) = phi(logπ, q, x)
+    chunk_size = getchunksize(typeof(alg))
+    # Set chunk size and do ForwardMode.
+    chunk = ForwardDiff.Chunk(min(length(x[:, 1]), chunk_size))
+    config = ForwardDiff.HessianConfig.(f, eachcol(x), Ref(chunk))
+    ForwardDiff.hessian!.(out, f, eachcol(x), config)
+end
+
 function optimize!(
     vo,
-    alg::DSVI,
+    alg::IBLR,
     q::Bijectors.TransformedDistribution,
     logπ;
     optimizer = TruncatedADAGrad(),
@@ -104,16 +122,10 @@ function optimize!(
     samples_per_step = nSamples(alg)
     max_iters = alg.max_iters
 
-    optimizer = if optimizer isa AbstractVector #Base.isiterable(typeof(optimizer))
-        length(optimizer) == 2 || error("Optimizer should be of size 2 only")
-        optimizer
-    else
-        fill(optimizer, 2)
-    end
-
-    x₀ = zeros(dim(q.dist), samples_per_step) # Storage for raw samples
+    z = zeros(dim(q.dist), samples_per_step) # Storage for samples
     x = zeros(dim(q.dist), samples_per_step) # Storage for samples
     diff_result = DiffResults.GradientResult(x)
+    # hess_results = DiffResults.HessianResult.(eachcol(x)) 
 
     i = 0
     prog = if PROGRESS[]
@@ -122,8 +134,13 @@ function optimize!(
         0
     end
     Δμ = similar(q.dist.μ)
-    ΔΓ = similar(q.dist.Γ)
+    G = similar(q.dist.S)
+    gS = similar(q.dist.S)
+    # optimizer isa Descent || error("IBLR only work with std. grad. descent")
+    Δt = optimizer.eta
+    
     time_elapsed = @elapsed while (i < max_iters) # & converged
+
 
         _logπ = if !isnothing(hyperparams)
             logπ(hyperparams)
@@ -131,22 +148,17 @@ function optimize!(
             logπ
         end
         
-        Distributions.randn!(x₀)
-        reparametrize!(x, q.dist, x₀)
+        Distributions.randn!(z)
+
+        reparametrize!(x, q.dist, z)
 
         grad!(vo, alg, q, _logπ, x, diff_result, samples_per_step)
-
+        # hessian!(vo, alg, q, _logπ, x, hess_results, samples_per_step)
         Δ = DiffResults.gradient(diff_result)
         
-        Δμ .= apply!(optimizer[1], q.dist.μ, vec(mean(Δ, dims = 2)))
-        ΔΓ .= typeof(q.dist.Γ)(apply!(optimizer[2],
-                                q.dist.Γ isa LowerTriangular ? q.dist.Γ.data : q.dist.Γ,
-                                updateΓ(Δ, x₀, q.dist.Γ))
-                            )
-        # apply update rule
-        q.dist.μ .-= Δμ
-        q.dist.Γ .-= ΔΓ
 
+        update_dist!(q.dist, alg, Δ, x, z, Δt)
+        
         if !isnothing(hyperparams) && !isnothing(hp_optimizer)
             Δ = hp_grad(vo, alg, q, logπ, hyperparams)
             Δ = apply!(hp_optimizer, hyperparams, Δ)
@@ -160,14 +172,35 @@ function optimize!(
         end
         i += 1
     end
-
     return q
 end
 
-function updateΓ(Δ::AbstractMatrix, z::AbstractMatrix, Γ::AbstractVector)
-    vec(mean(Δ .* z, dims=2)) - inv.(Γ)
+function update_dist!(d::PrecisionMvNormal, alg::IBLR, Δ, Δμ, G, gS, x, z, Δt)
+    
+    if alg.comp_hess == :hess
+        gS .= mean(ForwardDiff.hessian.(z->phi(_logπ, q, z), eachcol(x)))
+    elseif alg.comp_hess == :rep
+        gS .= z * gμ'
+        gS .= 0.5 * (gS + gS')
+    end
+
+    G .= d.S - gS
+    Δμ .= d.S \ mean(Δ, dims=2)
+    q.dist.μ .-= Δt * Δμ
+    q.dist.S .= (1 - Δt) * q.dist.S + Δt * gS + 0.5 * Δt^2 * G * (q.dist.S \ G)
 end
 
-function updateΓ(Δ::AbstractMatrix, z::AbstractMatrix, Γ::LowerTriangular)
-    LowerTriangular(Δ * z' / size(z, 2)) - inv(Diagonal(Γ))
+function update_dist!(d::MFMvNormal, alg::IBLR, Δ, Δμ, G, gS, x, z, Δt)
+    
+    if alg.comp_hess == :hess
+        gS .= mean(diag.(ForwardDiff.hessian.(z->phi(_logπ, q, z), eachcol(x))))
+    elseif alg.comp_hess == :rep
+        gS .= S * (x - d.μ) * Δ'
+        gS .= 0.5 * (gS + gS')
+    end
+    
+    G .= d.S - gS
+    Δμ .= d.S \ mean(Δ, dims=2)
+    d.μ .-= Δt * Δμ
+    d.S .= (1 - Δt) * d.S + Δt * gS + 0.5 * Δt^2 * G * (q.dist.S \ G)
 end
