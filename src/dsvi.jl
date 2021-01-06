@@ -82,7 +82,7 @@ function grad!(
     out::DiffResults.MutableDiffResult,
     args...,
 )
-    f(x) = sum(mapslices(z -> phi(logπ, q, z), x, dims = 1))
+    f(x) = sum(z->phi(logπ, q, z), eachcol(x))
     chunk_size = getchunksize(typeof(alg))
     # Set chunk size and do ForwardMode.
     chunk = ForwardDiff.Chunk(min(length(x), chunk_size))
@@ -111,8 +111,8 @@ function optimize!(
         fill(optimizer, 2)
     end
 
-    z = zeros(length(q.dist), samples_per_step) # Storage for samples
-    x = zeros(length(q.dist), samples_per_step) # Storage for samples
+    x₀ = zeros(dim(q.dist), samples_per_step) # Storage for raw samples
+    x = zeros(dim(q.dist), samples_per_step) # Storage for samples
     diff_result = DiffResults.GradientResult(x)
 
     i = 0
@@ -131,15 +131,18 @@ function optimize!(
             logπ
         end
         
-        Distributions.randn!(z)
-        reparametrize!(x, q.dist, z)
+        Distributions.randn!(x₀)
+        reparametrize!(x, q.dist, x₀)
 
         grad!(vo, alg, q, _logπ, x, diff_result, samples_per_step)
 
         Δ = DiffResults.gradient(diff_result)
         
         Δμ .= apply!(optimizer[1], q.dist.μ, vec(mean(Δ, dims = 2)))
-        ΔΓ .= typeof(q.dist.Γ)(apply!(optimizer[2], q.dist.Γ, updateΓ(Δ, z, q.dist.Γ)))
+        ΔΓ .= typeof(q.dist.Γ)(apply!(optimizer[2],
+                                q.dist.Γ isa LowerTriangular ? q.dist.Γ.data : q.dist.Γ,
+                                updateΓ(Δ, x₀, q.dist.Γ))
+                            )
         # apply update rule
         q.dist.μ .-= Δμ
         q.dist.Γ .-= ΔΓ
@@ -161,12 +164,12 @@ function optimize!(
     return q
 end
 
-function updateΓ(Δ, z, Γ::AbstractVector)
-    vec(mean(Δ .* z, dims=2)) + inv.(Γ)
+function updateΓ(Δ::AbstractMatrix, z::AbstractMatrix, Γ::AbstractVector)
+    vec(mean(Δ .* z, dims=2)) - inv.(Γ)
 end
 
-function updateΓ(Δ, z, Γ::LowerTriangular)
-    LowerTriangular(Δ * z' / size(z, 2)) + inv(Diagonal(Γ))
+function updateΓ(Δ::AbstractMatrix, z::AbstractMatrix, Γ::LowerTriangular)
+    LowerTriangular(Δ * z' / size(z, 2)) - inv(Diagonal(Γ))
 end
 
 function reparametrize!(x, q::CholMvNormal, z)

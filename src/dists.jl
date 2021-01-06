@@ -4,13 +4,22 @@ abstract type AbstractPosteriorMvNormal{T} <:
 
 Base.eltype(::AbstractPosteriorMvNormal{T}) where {T} = T
 Base.length(d::AbstractPosteriorMvNormal) = d.dim
+Distributions.dim(d::AbstractPosteriorMvNormal) = d.dim
 Distributions.mean(d::AbstractPosteriorMvNormal) = d.μ
 rank(d::AbstractPosteriorMvNormal) = d.dim
 
 function Distributions._rand!(
   rng::AbstractRNG,
   d::AbstractPosteriorMvNormal{T},
-  x::AbstractVecOrMat,
+  x::AbstractVector,
+) where {T}
+    Distributions._rand!(rng, MvNormal(d), x)
+end
+
+function Distributions._rand!(
+  rng::AbstractRNG,
+  d::AbstractPosteriorMvNormal{T},
+  x::AbstractMatrix,
 ) where {T}
     Distributions._rand!(rng, MvNormal(d), x)
 end
@@ -27,7 +36,7 @@ function Distributions._rand!(
   x::AbstractVector,
 ) where {T}
   nDim = length(x)
-  nDim == d.dim || error("Wrong dimensions")
+  nDim == dim(d) || error("Wrong dimensions")
   x .= d.μ + d.Γ * randn(rng, T, rank(d))
 end
 
@@ -37,7 +46,7 @@ function Distributions._rand!(
   x::AbstractMatrix,
 ) where {T}
   nDim, nPoints = size(x)
-  nDim == d.dim || error("Wrong dimensions")
+  nDim == dim(d) || error("Wrong dimensions")
   x .= d.μ .+ d.Γ * randn(rng, T, rank(d), nPoints)
 end
 
@@ -210,8 +219,7 @@ Distributions.cov(d::MFMvNormal) = Diagonal(abs2.(d.Γ))
 """
     FCSMvNormal(μ, Γ, D)
 """
-struct FCSMvNormal{T, Tμ<:AbstractVector{T}, TΓ<:AbstractMatrix{T}, TD<:AbstractVector{T}}
-    <: AbstractPosteriorMvNormal{T}
+struct FCSMvNormal{T, Tμ<:AbstractVector{T}, TΓ<:AbstractMatrix{T}, TD<:AbstractVector{T}} <: AbstractPosteriorMvNormal{T}
     dim::Int
     μ::Tμ
     Γ::TΓ
