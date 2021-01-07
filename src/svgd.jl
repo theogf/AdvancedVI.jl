@@ -77,7 +77,7 @@ function optimize!(
     max_iters = alg.max_iters
 
     # diff_result = DiffResults.GradientResult(θ)
-    alg.kernel.transform.s .= log(q.dist.n_particles) / sqrt( 0.5 * median(
+    alg.kernel.transform.s .= log(q.dist.n_particles) / sqrt(median(
     pairwise(SqEuclidean(), q.dist.x, dims = 2)))
 
     i = 0
@@ -114,12 +114,12 @@ function optimize!(
         # Option 2 : On time computations
         for k = 1:q.dist.n_particles
             Δ[:, k] =
-                sum(
+                mean(
                     K[j, k] * gradlogp[j] + ForwardDiff.gradient(
-                        x -> alg.kernel(q.dist.x[:, j], x),
-                        q.dist.x[:, k],
-                    ) for j = 1:q.dist.n_particles
-                ) / q.dist.n_particles
+                        x -> alg.kernel(x, q.dist.x[:, k]),
+                        q.dist.x[:, j],
+                    ) for j in 1:q.dist.n_particles
+                )
         end
 
 
@@ -127,9 +127,9 @@ function optimize!(
         # Δ = DiffResults.gradient(diff_result)
         Δ = apply!(optimizer, q.dist.x, Δ)
         @. q.dist.x = q.dist.x + Δ
-        alg.kernel.transform.s .=
-            log(q.dist.n_particles) / sqrt( 0.5 * median(
-            pairwise(SqEuclidean(), q.dist.x, dims = 2)))
+        # alg.kernel.transform.s .=
+        #     log(q.dist.n_particles) / sqrt(median(
+        #     pairwise(SqEuclidean(), q.dist.x, dims = 2)))
 
         if !isnothing(hyperparams) && !isnothing(hp_optimizer)
             Δ = hp_grad(vo, alg, q, logπ, hyperparams)

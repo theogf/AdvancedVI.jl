@@ -41,7 +41,7 @@ algs = Dict(
     # :gflow => AVI.GaussFlow(1, S, false, false),
     # :gpflow => AVI.GaussPFlow(1, true, false),
     # :dsvi => AVI.DSVI(1, S),
-    :iblr => AVI.IBLR(1, S),
+    :iblr => AVI.IBLR(1, S, :rep),
 )
 
 function MvNormal(q::AVI.AbstractPosteriorMvNormal)
@@ -63,11 +63,11 @@ xlin = range(-10, 10, length = 100)
 ylin = range(-10, 10, length = 100)
 a = Animation()
 @showprogress for i in 1:100 
-    contour(xlin, ylin, (x,y)->pdf(d_target, [x,y]), clims = (0, 0.2), color = :red, colorbar = false, title = "i = $i")
+    Plots.contour(xlin, ylin, (x,y)->pdf(d_target, [x,y]), clims = (0, 0.2), color = :red, colorbar = false, title = "i = $i")
     for (name, alg) in algs
         q = fullqs[name]
         alg isa AVI.GaussPFlow && scatter!(eachrow(q.x)..., label="")
-        contour!(xlin, ylin, (x,y)->pdf(MvNormal(q), [x,y]))
+        Plots.contour!(xlin, ylin, (x,y)->pdf(MvNormal(q), [x,y]))
         AVI.vi(logπ, alg, q, optimizer = opt)
     end
     frame(a)

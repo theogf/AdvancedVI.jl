@@ -1,31 +1,23 @@
-using Turing
 using AdvancedVI; const AVI = AdvancedVI
 using KernelFunctions, Distances
 using ForwardDiff
 using LinearAlgebra
 using Flux
-
-x = randn(2000)
-
-@model model(x) = begin
-    s ~ LogNormal(2, 3)
-    m ~ Normal(0.0, s)
-    for i = 1:length(x)
-        x[i] ~ Normal(m, sqrt(s))
-    end
-end
-using Makie, Colors
+using Distributions
 
 ##
+using Makie, Colors
+
+target = MvNormal(zeros(2), [1 0.5; 0.5 2])
+logπ(x) = logpdf(target, x)
+logπ(rand(2))
+
 
 max_iter = 100
 k = transform(SqExponentialKernel(),1.0)
-m = model(x)
-Turing.VarInfo(m).metadata
-steinvi = AdvancedVI.SteinVI(max_iter, k)
-q = AVI.SteinDistribution(randn(100,2))
-q = AdvancedVI.vi(m, steinvi, 100, optimizer = ADAGrad(0.1))
-@profiler q = AdvancedVI.vi(m, steinvi, 100, optimizer = ADAGrad(0.1))
+steinvi = AdvancedVI.SVGD(max_iter, k)
+q = AVI.EmpiricalDistribution(randn(2,100))
+AdvancedVI.vi(logπ, steinvi, q, optimizer = Descent(0.1))
 mean(q)
 cov(q)
 # global q = AdvancedVI.vi(m, steinvi, q, optimizer = ADAGrad(0.1))

@@ -118,7 +118,7 @@ function Distributions._rand!(
 )
   Distributions._rand!(rng, MvNormalCanon(d.S * d.μ, d.S), x)
 end
-Distributions.cov(d::PrecisionMvNormal) = inv(d.S)
+Distributions.cov(d::PrecisionMvNormal) = Symmetric(inv(d.S))
 
 struct DiagPrecisionMvNormal{T, Tμ<:AbstractVector{T}, TS<:AbstractVector{T}} <: AbstractLowRankMvNormal{T}
     dim::Int
@@ -487,7 +487,7 @@ Distributions.entropy(d::EmpiricalDistribution) = zero(eltype(d)) # Not valid bu
 ## Reparametrization methods for sampling
 
 function reparametrize!(x, q::PrecisionMvNormal, z)
-    x .= q.μ .+ cholesky(q).L \ z
+    x .= q.μ .+ cholesky(q.S).L \ z
 end
 
 function reparametrize!(x, q::DiagPrecisionMvNormal, z)

@@ -56,7 +56,7 @@ function grad!(
 end
 function grad!(
     vo,
-    alg::GaussFlowVI{<:ReverseDiffAD},
+    alg::GaussFlow{<:ReverseDiffAD},
     q,
     logπ,
     x,

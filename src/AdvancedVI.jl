@@ -238,7 +238,7 @@ include("dsvi.jl")
 include("gaussflow.jl")
 include("gausspartflow.jl")
 include("iblr.jl")
-include("steinvi.jl")
+include("svgd.jl")
 include("utils.jl")
 
 

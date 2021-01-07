@@ -49,3 +49,7 @@ function LinearAlgebra.:\(A::BlockDiagonal, B::AbstractVecOrMat)
     end
     return c
 end
+
+function diag_ABt(A, B=A)
+    vec(sum(A .* B, dims=2))
+end

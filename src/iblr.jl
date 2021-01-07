@@ -157,7 +157,7 @@ function optimize!(
         Δ = DiffResults.gradient(diff_result)
         
 
-        update_dist!(q.dist, alg, Δ, x, z, Δt)
+        update_dist!(q.dist, alg, _logπ, Δ, Δμ, G, gS, x, Δt)
         
         if !isnothing(hyperparams) && !isnothing(hp_optimizer)
             Δ = hp_grad(vo, alg, q, logπ, hyperparams)
@@ -175,32 +175,33 @@ function optimize!(
     return q
 end
 
-function update_dist!(d::PrecisionMvNormal, alg::IBLR, Δ, Δμ, G, gS, x, z, Δt)
+function update_dist!(d::PrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x, Δt)
     
-    if alg.comp_hess == :hess
-        gS .= mean(ForwardDiff.hessian.(z->phi(_logπ, q, z), eachcol(x)))
-    elseif alg.comp_hess == :rep
-        gS .= z * gμ'
+    if alg.hess_comp == :hess
+        gS .= mean(ForwardDiff.hessian.(z->phi(logπ, d, z), eachcol(x)))
+    elseif alg.hess_comp == :rep
+        gS .= d.S * (x .- d.μ) * Δ' / alg.nSamples
         gS .= 0.5 * (gS + gS')
+        gS2 = mean(ForwardDiff.hessian.(z->phi(logπ, d, z), eachcol(x)))
+        @show gS - gS2
+        @show gS2 ./ gS
     end
 
     G .= d.S - gS
-    Δμ .= d.S \ mean(Δ, dims=2)
-    q.dist.μ .-= Δt * Δμ
-    q.dist.S .= (1 - Δt) * q.dist.S + Δt * gS + 0.5 * Δt^2 * G * (q.dist.S \ G)
+    Δμ .= d.S \ vec(mean(Δ, dims=2))
+    d.μ .-= Δt * Δμ
+    d.S .= Symmetric((1 - Δt) * d.S + Δt * gS + 0.5 * Δt^2 * G * (d.S \ G))
 end
 
-function update_dist!(d::MFMvNormal, alg::IBLR, Δ, Δμ, G, gS, x, z, Δt)
-    
-    if alg.comp_hess == :hess
-        gS .= mean(diag.(ForwardDiff.hessian.(z->phi(_logπ, q, z), eachcol(x))))
-    elseif alg.comp_hess == :rep
-        gS .= S * (x - d.μ) * Δ'
-        gS .= 0.5 * (gS + gS')
+function update_dist!(d::MFMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x, Δt)
+    if alg.hess_comp == :hess
+        gS .= mean(diag.(ForwardDiff.hessian.(z->phi(logπ, d, z), eachcol(x))))
+    elseif alg.hess_comp == :rep
+        gS .= diag_ABt(d.S .* (x - d.μ), Δ) / alg.nSamples
     end
     
     G .= d.S - gS
-    Δμ .= d.S \ mean(Δ, dims=2)
+    Δμ .= d.S .\ mean(Δ, dims=2)
     d.μ .-= Δt * Δμ
-    d.S .= (1 - Δt) * d.S + Δt * gS + 0.5 * Δt^2 * G * (q.dist.S \ G)
+    d.S .= (1 - Δt) * d.S + Δt * gS + 0.5 * Δt^2 * G .* (q.dist.S .\ G)
 end
