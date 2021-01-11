@@ -108,11 +108,11 @@ function update_dist!(d::PrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x
     if alg.hess_comp == :hess
         gS .= mean(ForwardDiff.hessian.(z->phi(logπ, d, z), eachcol(x)))
     elseif alg.hess_comp == :rep
-        gS .= d.S * (x .- d.μ) * Δ' / alg.nSamples
+        gS .= d.S * (x .- d.μ) * Δ' / nSamples(alg)
         gS .= 0.5 * (gS + gS')
-        gS2 = mean(ForwardDiff.hessian.(z->phi(logπ, d, z), eachcol(x)))
-        @show gS - gS2
-        @show gS2 ./ gS
+        # gS2 = mean(ForwardDiff.hessian.(z->phi(logπ, d, z), eachcol(x)))
+        # @show gS - gS2
+        # @show gS2 ./ gS
     end
 
     G .= d.S - gS
@@ -121,15 +121,24 @@ function update_dist!(d::PrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x
     d.S .= Symmetric((1 - Δt) * d.S + Δt * gS + 0.5 * Δt^2 * G * (d.S \ G))
 end
 
-function update_dist!(d::MFMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x, Δt)
+function update_dist!(d::DiagPrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x, Δt)
     if alg.hess_comp == :hess
         gS .= mean(diag.(ForwardDiff.hessian.(z->phi(logπ, d, z), eachcol(x))))
     elseif alg.hess_comp == :rep
-        gS .= diag_ABt(d.S .* (x - d.μ), Δ) / alg.nSamples
+        gS .= diag_ABt(d.S .* (x .- d.μ), Δ) / nSamples(alg)
     end
-    
     G .= d.S - gS
-    Δμ .= d.S .\ mean(Δ, dims=2)
+    Δμ .= d.S .\ vec(mean(Δ, dims=2))
     d.μ .-= Δt * Δμ
-    d.S .= (1 - Δt) * d.S + Δt * gS + 0.5 * Δt^2 * G .* (q.dist.S .\ G)
+    d.S .= (1 - Δt) * d.S + Δt * gS + 0.5 * Δt^2 * G .* (d.S .\ G)
+end
+
+function update_dist!(d::DiagPrecisionMvNormal, alg::IBLRADAM, logπ, Δ, Δμ, G, gS, x, Δt)
+    r = opt.r
+    g = vec(mean(Δ, dims=2))
+    h = d.S .\ (x .- d.μ)
+    d.μ .= d.μ - t * (1 - r[1]) * (1 - r[2]^k) / (1 - r[1]^k) * d.S .\ ((1 - r[1]) * g + r[1] * opt.m)
+    opt.m .= (1 - r[1]) * g + r[1] * opt.m
+    opt.S .= 0.5 * (opt.S + (opt.S + (1 - r[2]) * opt.h).^2 ./ opt.S)
+    d.S .= N * opt.S
 end

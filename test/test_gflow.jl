@@ -41,8 +41,8 @@ algs = Dict(
     # :gflow => AVI.GaussFlow(1, S, false, false),
     # :gpflow => AVI.GaussPFlow(1, true, false),
     # :dsvi => AVI.DSVI(1, S),
-    :iblr => AVI.IBLR(1, S, :hess),
-    :fcs => AVI.FCS(1, S),
+    :iblr => AVI.IBLR(1, S, :rep),
+    # :fcs => AVI.FCS(1, S),
 )
 
 function MvNormal(q::AVI.AbstractPosteriorMvNormal)
@@ -64,7 +64,7 @@ using Plots
 xlin = range(-10, 10, length = 100)
 ylin = range(-10, 10, length = 100)
 a = Animation()
-@showprogress for i in 1:100 
+@showprogress for i in 1:1000
     Plots.contour(xlin, ylin, (x,y)->pdf(d_target, [x,y]), clims = (0, 0.2), color = :red, colorbar = false, title = "i = $i")
     for (name, alg) in algs
         q = fullqs[name]
@@ -90,6 +90,7 @@ mfqs = Dict(
     :gflow => AVI.MFMvNormal(copy(μ), diag(Γ)),
     :gpflow => AVI.MFSamplesMvNormal(rand(MvNormal(μ, Γ * Γ'), S)),
     :dsvi => AVI.MFMvNormal(copy(μ), diag(Γ)),
+    :iblr => AVI.DiagPrecisionMvNormal(copy(μ), inv.(diag(Γ)))
 )
 opt = Descent(0.1)
 # opt = [Descent(0.1), RobbinsMonro(0.99, 50)]
