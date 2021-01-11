@@ -7,7 +7,7 @@ Can only work on the following distributions:
  - `MFMvNormal`
  - `BlockMFMvNormal`
 """
-struct GaussFlow{AD} <: VariationalInference{AD}
+struct GaussFlow{AD} <: GVA{AD}
     max_iters::Int        # maximum number of gradient steps used in optimization
     nSamples::Int   # Number of samples per expectation
     precondΔ₁::Bool # Precondition the first gradient (mean)
@@ -18,80 +18,8 @@ end
 
 GaussFlow(args...) = GaussFlow{ADBackend()}(args...)
 GaussFlow() = GaussFlow(100, 10, false, false)
-nSamples(alg::GaussFlow) = alg.nSamples
 
 alg_str(::GaussFlow) = "GaussFlow"
-
-function vi(
-    logπ::Function,
-    alg::GaussFlow,
-    q::AbstractPosteriorMvNormal;
-    optimizer = TruncatedADAGrad(),
-    callback = nothing,
-    hyperparams = nothing,
-    hp_optimizer = nothing,
-)
-    DEBUG && @debug "Optimizing $(alg_str(alg))..."
-    # Initial parameters for mean-field approx
-    # Optimize
-    optimize!(
-        elbo,
-        alg,
-        transformed(q, Identity{1}()),
-        logπ;
-        optimizer = optimizer,
-        callback = callback,
-        hyperparams = hyperparams,
-        hp_optimizer = hp_optimizer,
-    )
-
-    # Return updated `Distribution`
-    return q
-end
-
-function vi(
-    logπ::Function,
-    alg::GaussFlow,
-    q::TransformedDistribution{<:AbstractPosteriorMvNormal};
-    optimizer = TruncatedADAGrad(),
-    callback = nothing,
-    hyperparams = nothing,
-    hp_optimizer = nothing,
-)
-    DEBUG && @debug "Optimizing $(alg_str(alg))..."
-    # Initial parameters for mean-field approx
-    # Optimize
-    optimize!(
-        elbo,
-        alg,
-        q,
-        logπ;
-        optimizer = optimizer,
-        callback = callback,
-        hyperparams = nothing,
-        hp_optimizer = nothing,
-    )
-
-    # Return updated `Distribution`
-    return q
-end
-
-function grad!(
-    vo,
-    alg::GaussFlow{<:ForwardDiffAD},
-    q,
-    logπ,
-    x,
-    out::DiffResults.MutableDiffResult,
-    args...,
-)
-    f(x) = sum(mapslices(z -> phi(logπ, q, z), x, dims = 1))
-    chunk_size = getchunksize(typeof(alg))
-    # Set chunk size and do ForwardMode.
-    chunk = ForwardDiff.Chunk(min(length(x), chunk_size))
-    config = ForwardDiff.GradientConfig(f, x, chunk)
-    ForwardDiff.gradient!(out, f, x, config)
-end
 
 function optimize!(
     vo,

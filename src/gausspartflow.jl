@@ -3,7 +3,7 @@
 
 Gaussian Particle Flow Inference (GaussPFlow) for a given model.
 """
-struct GaussPFlow{AD} <: VariationalInference{AD}
+struct GaussPFlow{AD} <: GVA{AD}
     max_iters::Int        # maximum number of gradient steps used in optimization
     precondΔ₁::Bool # Precondition the first gradient (mean)
     precondΔ₂::Bool # Precondition the second gradient (cov)
@@ -16,68 +16,10 @@ GaussPFlow() = GaussPFlow(100, true, false)
 
 alg_str(::GaussPFlow) = "GaussPFlow"
 
-function vi(
-    logπ::Function,
-    alg::GaussPFlow,
-    q::AbstractSamplesMvNormal;
-    optimizer = TruncatedADAGrad(),
-    callback = nothing,
-    hyperparams = nothing,
-    hp_optimizer = nothing,
-)
-    DEBUG && @debug "Optimizing $(alg_str(alg))..."
-    # Initial parameters for mean-field approx
-    # Optimize
-    optimize!(
-        elbo,
-        alg,
-        transformed(q, Identity{1}()),
-        logπ,
-        [0.0];
-        optimizer = optimizer,
-        callback = callback,
-        hyperparams = hyperparams,
-        hp_optimizer = hp_optimizer,
-    )
-
-    # Return updated `Distribution`
-    return q
-end
-
-function vi(
-    logπ::Function,
-    alg::GaussPFlow,
-    q::TransformedDistribution{<:AbstractSamplesMvNormal};
-    optimizer = TruncatedADAGrad(),
-    callback = nothing,
-    hyperparams = nothing,
-    hp_optimizer = nothing,
-)
-    DEBUG && @debug "Optimizing $(alg_str(alg))..."
-    # Initial parameters for mean-field approx
-    # Optimize
-    optimize!(
-        elbo,
-        alg,
-        q,
-        logπ,
-        [0.0];
-        optimizer = optimizer,
-        callback = callback,
-        hyperparams = nothing,
-        hp_optimizer = nothing,
-    )
-
-    # Return updated `Distribution`
-    return q
-end
-
 function grad!(
-    vo,
     alg::GaussPFlow{<:ForwardDiffAD},
     q,
     logπ,
-    ::AbstractVector{<:Real},
     out::DiffResults.MutableDiffResult,
     args...,
 )
@@ -95,15 +37,13 @@ function optimize!(
     vo,
     alg::GaussPFlow,
     q::SampMvNormal,
-    logπ,
-    θ::AbstractVector{<:Real};
+    logπ;
     optimizer = TruncatedADAGrad(),
     callback = nothing,
     hyperparams = nothing,
     hp_optimizer = nothing,
 )
     alg_name = alg_str(alg)
-    samples_per_step = nSamples(alg)
     max_iters = alg.max_iters
 
     optimizer = if optimizer isa AbstractVector #Base.isiterable(typeof(optimizer))
@@ -131,7 +71,7 @@ function optimize!(
             logπ
         end
 
-        grad!(vo, alg, q, _logπ, θ, diff_result, samples_per_step)
+        grad!(alg, q, _logπ, diff_result)
 
         Δ = DiffResults.gradient(diff_result)
 

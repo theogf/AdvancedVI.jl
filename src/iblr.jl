@@ -6,7 +6,7 @@ Can only work on the following distributions:
  - `Precision`
  - `MFMvNormal`
 """
-struct IBLR{AD} <: VariationalInference{AD}
+struct IBLR{AD} <: GVA{AD}
     max_iters::Int        # maximum number of gradient steps used in optimization
     nSamples::Int   # Number of samples per expectation
     hess_comp::Symbol
@@ -15,81 +15,9 @@ end
 # params(alg::SteinVI) = nothing;#params(alg.kernel)
 
 IBLR(args...) = IBLR{ADBackend()}(args...)
-IBLR() = IBLR(100, 10, :hess)
-nSamples(alg::IBLR) = alg.nSamples
+IBLR() = IBLR(100, 100, :hess)
 
 alg_str(::IBLR) = "IBLR"
-
-function vi(
-    logπ::Function,
-    alg::IBLR,
-    q::AbstractPosteriorMvNormal;
-    optimizer = TruncatedADAGrad(),
-    callback = nothing,
-    hyperparams = nothing,
-    hp_optimizer = nothing,
-)
-    DEBUG && @debug "Optimizing $(alg_str(alg))..."
-    # Initial parameters for mean-field approx
-    # Optimize
-    optimize!(
-        elbo,
-        alg,
-        transformed(q, Identity{1}()),
-        logπ;
-        optimizer = optimizer,
-        callback = callback,
-        hyperparams = hyperparams,
-        hp_optimizer = hp_optimizer,
-    )
-
-    # Return updated `Distribution`
-    return q
-end
-
-function vi(
-    logπ::Function,
-    alg::IBLR,
-    q::TransformedDistribution{<:AbstractPosteriorMvNormal};
-    optimizer = TruncatedADAGrad(),
-    callback = nothing,
-    hyperparams = nothing,
-    hp_optimizer = nothing,
-)
-    DEBUG && @debug "Optimizing $(alg_str(alg))..."
-    # Initial parameters for mean-field approx
-    # Optimize
-    optimize!(
-        elbo,
-        alg,
-        q,
-        logπ;
-        optimizer = optimizer,
-        callback = callback,
-        hyperparams = nothing,
-        hp_optimizer = nothing,
-    )
-
-    # Return updated `Distribution`
-    return q
-end
-
-function grad!(
-    vo,
-    alg::IBLR{<:ForwardDiffAD},
-    q,
-    logπ,
-    x,
-    out::DiffResults.MutableDiffResult,
-    args...,
-)
-    f(x) = sum(z->phi(logπ, q, z), eachcol(x))
-    chunk_size = getchunksize(typeof(alg))
-    # Set chunk size and do ForwardMode.
-    chunk = ForwardDiff.Chunk(min(length(x), chunk_size))
-    config = ForwardDiff.GradientConfig(f, x, chunk)
-    ForwardDiff.gradient!(out, f, x, config)
-end
 
 function hessian!( # Does not work currently... 
     vo,

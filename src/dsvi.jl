@@ -6,7 +6,7 @@ Can only work on the following distributions:
  - `CholMvNormal`
  - `MFMvNormal`
 """
-struct DSVI{AD} <: VariationalInference{AD}
+struct DSVI{AD} <: GVA{AD}
     max_iters::Int        # maximum number of gradient steps used in optimization
     nSamples::Int   # Number of samples per expectation
 end
@@ -15,80 +15,8 @@ end
 
 DSVI(args...) = DSVI{ADBackend()}(args...)
 DSVI() = DSVI(100, 10)
-nSamples(alg::DSVI) = alg.nSamples
 
 alg_str(::DSVI) = "DSVI"
-
-function vi(
-    logπ::Function,
-    alg::DSVI,
-    q::AbstractPosteriorMvNormal;
-    optimizer = TruncatedADAGrad(),
-    callback = nothing,
-    hyperparams = nothing,
-    hp_optimizer = nothing,
-)
-    DEBUG && @debug "Optimizing $(alg_str(alg))..."
-    # Initial parameters for mean-field approx
-    # Optimize
-    optimize!(
-        elbo,
-        alg,
-        transformed(q, Identity{1}()),
-        logπ;
-        optimizer = optimizer,
-        callback = callback,
-        hyperparams = hyperparams,
-        hp_optimizer = hp_optimizer,
-    )
-
-    # Return updated `Distribution`
-    return q
-end
-
-function vi(
-    logπ::Function,
-    alg::DSVI,
-    q::TransformedDistribution{<:AbstractPosteriorMvNormal};
-    optimizer = TruncatedADAGrad(),
-    callback = nothing,
-    hyperparams = nothing,
-    hp_optimizer = nothing,
-)
-    DEBUG && @debug "Optimizing $(alg_str(alg))..."
-    # Initial parameters for mean-field approx
-    # Optimize
-    optimize!(
-        elbo,
-        alg,
-        q,
-        logπ;
-        optimizer = optimizer,
-        callback = callback,
-        hyperparams = nothing,
-        hp_optimizer = nothing,
-    )
-
-    # Return updated `Distribution`
-    return q
-end
-
-function grad!(
-    vo,
-    alg::DSVI{<:ForwardDiffAD},
-    q,
-    logπ,
-    x,
-    out::DiffResults.MutableDiffResult,
-    args...,
-)
-    f(x) = sum(z->phi(logπ, q, z), eachcol(x))
-    chunk_size = getchunksize(typeof(alg))
-    # Set chunk size and do ForwardMode.
-    chunk = ForwardDiff.Chunk(min(length(x), chunk_size))
-    config = ForwardDiff.GradientConfig(f, x, chunk)
-    ForwardDiff.gradient!(out, f, x, config)
-end
 
 function optimize!(
     vo,

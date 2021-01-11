@@ -37,11 +37,9 @@ function AdvancedVI.grad!(
 end
 
 function grad!(
-    vo,
-    alg::GaussPFlow{<:ReverseDiffAD},
+    ::GaussPFlow{<:ReverseDiffAD},
     q,
     logπ,
-    θ::AbstractVector{<:Real},
     out::DiffResults.MutableDiffResult,
     args...
 )
@@ -54,9 +52,10 @@ function grad!(
     ReverseDiff.gradient!(out, tp, q.dist.x)
     return out
 end
+
 function grad!(
     vo,
-    alg::GaussFlow{<:ReverseDiffAD},
+    alg::GVA{<:ReverseDiffAD},
     q,
     logπ,
     x,

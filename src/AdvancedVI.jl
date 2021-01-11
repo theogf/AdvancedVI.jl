@@ -24,11 +24,11 @@ export
     TruncatedADAGrad,
     DecayedADAGrad,
     VariationalInference,
-    SVGD, IBLR, DSVI,
+    SVGD, IBLR, DSVI, FCS,
     GaussFlow, GaussPFlow,
     EmpiricalDistribution,
     SamplesMvNormal, BlockMFSamplesMvNormal, MFSamplesMvNormal,
-    LowRankMvNormal, BlockMFLowRankMvNormal, MFMvNormal,
+    LowRankMvNormal, BlockMFLowRankMvNormal, MFMvNormal, FCSMvNormal,
     PrecisionMvNormal, CholMvNormal
 
 @functor TuringDenseMvNormal
@@ -233,11 +233,8 @@ include("dists.jl")
 
 # VI algorithms
 include("advi.jl")
+include("gva.jl")
 include("adquadvi.jl")
-include("dsvi.jl")
-include("gaussflow.jl")
-include("gausspartflow.jl")
-include("iblr.jl")
 include("svgd.jl")
 include("utils.jl")
 

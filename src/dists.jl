@@ -501,3 +501,7 @@ end
 function reparametrize!(x, q::MFMvNormal, z)
     x .= q.μ .+ q.Γ .* z
 end
+
+function reparametrize!(x, q::FCSMvNormal, z, ϵ)
+    x .= q.μ .+ q.Γ * z + q.D .* ϵ
+end

@@ -41,7 +41,8 @@ algs = Dict(
     # :gflow => AVI.GaussFlow(1, S, false, false),
     # :gpflow => AVI.GaussPFlow(1, true, false),
     # :dsvi => AVI.DSVI(1, S),
-    :iblr => AVI.IBLR(1, S, :rep),
+    :iblr => AVI.IBLR(1, S, :hess),
+    :fcs => AVI.FCS(1, S),
 )
 
 function MvNormal(q::AVI.AbstractPosteriorMvNormal)
@@ -53,7 +54,8 @@ fullqs = Dict(
     :gflow => AVI.LowRankMvNormal(copy(μ), copy(Γ)),
     :gpflow => AVI.SamplesMvNormal(rand(MvNormal(μ, Γ * Γ'), S)),
     :dsvi => AVI.CholMvNormal(copy(μ), cholesky(Γ).L),
-    :iblr => AVI.PrecisionMvNormal(copy(μ), inv(Γ))
+    :iblr => AVI.PrecisionMvNormal(copy(μ), inv(Γ)),
+    :fcs => AVI.FCSMvNormal(copy(μ), Matrix(cholesky(Γ).L) / sqrt(2), ones(length(μ)) / sqrt(2))
 )
 opt = Descent(0.1)
 # opt = [Descent(0.1), RobbinsMonro(0.99, 50)]
