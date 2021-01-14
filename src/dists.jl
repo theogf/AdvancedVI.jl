@@ -264,8 +264,8 @@ struct MFMvNormal{
     end
     function MFMvNormal(
         dim::Int,
-        μ::AbstractVector{T},
-        Γ::AbstractVector{T}
+        μ::Tμ,
+        Γ::TΓ
     ) where {T, Tμ<:AbstractVector{T}, TΓ<:AbstractVector{T}}
         return new{T,Tμ,TΓ}(dim, μ, Γ)
     end
