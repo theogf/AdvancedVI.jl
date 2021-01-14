@@ -65,7 +65,6 @@ function optimize!(
     G = similar(q.dist.S)
     gS = similar(q.dist.S)
     # optimizer isa Descent || error("IBLR only work with std. grad. descent")
-    Δt = optimizer.eta
     
     time_elapsed = @elapsed while (i < max_iters) # & converged
 
@@ -85,7 +84,7 @@ function optimize!(
         Δ = DiffResults.gradient(diff_result)
         
 
-        update_dist!(q.dist, alg, _logπ, Δ, Δμ, G, gS, x, Δt)
+        update_dist!(q.dist, alg, _logπ, Δ, Δμ, G, gS, x, optimizer)
         
         if !isnothing(hyperparams) && !isnothing(hp_optimizer)
             Δ = hp_grad(vo, alg, q, logπ, hyperparams)
@@ -103,16 +102,14 @@ function optimize!(
     return q
 end
 
-function update_dist!(d::PrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x, Δt)
-    
+
+function update_dist!(d::PrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x, opt)
+    Δt = opt.eta
     if alg.hess_comp == :hess
         gS .= mean(ForwardDiff.hessian.(z->phi(logπ, d, z), eachcol(x)))
     elseif alg.hess_comp == :rep
         gS .= d.S * (x .- d.μ) * Δ' / nSamples(alg)
         gS .= 0.5 * (gS + gS')
-        # gS2 = mean(ForwardDiff.hessian.(z->phi(logπ, d, z), eachcol(x)))
-        # @show gS - gS2
-        # @show gS2 ./ gS
     end
 
     G .= d.S - gS
@@ -121,7 +118,8 @@ function update_dist!(d::PrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x
     d.S .= Symmetric((1 - Δt) * d.S + Δt * gS + 0.5 * Δt^2 * G * (d.S \ G))
 end
 
-function update_dist!(d::DiagPrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x, Δt)
+function update_dist!(d::DiagPrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x, opt)
+    Δt = opt.eta
     if alg.hess_comp == :hess
         gS .= mean(diag.(ForwardDiff.hessian.(z->phi(logπ, d, z), eachcol(x))))
     elseif alg.hess_comp == :rep
@@ -133,12 +131,27 @@ function update_dist!(d::DiagPrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, g
     d.S .= (1 - Δt) * d.S + Δt * gS + 0.5 * Δt^2 * G .* (d.S .\ G)
 end
 
-function update_dist!(d::DiagPrecisionMvNormal, alg::IBLRADAM, logπ, Δ, Δμ, G, gS, x, Δt)
+
+mutable struct ADAM_IBLR{R, V}
+    r::R # Decaying rates
+    η::Int # General learning rate
+    k::Int # Time
+    m::V # Momentum for mean
+    S::V # Momentum for precision
+end
+
+function update_dist!(d::DiagPrecisionMvNormal, alg::IBLR, logπ, Δ, Δμ, G, gS, x, opt::ADAM_IBLR)
     r = opt.r
+    k = opt.k
+    η = opt.η
+
     g = vec(mean(Δ, dims=2))
-    h = d.S .\ (x .- d.μ)
-    d.μ .= d.μ - t * (1 - r[1]) * (1 - r[2]^k) / (1 - r[1]^k) * d.S .\ ((1 - r[1]) * g + r[1] * opt.m)
-    opt.m .= (1 - r[1]) * g + r[1] * opt.m
-    opt.S .= 0.5 * (opt.S + (opt.S + (1 - r[2]) * opt.h).^2 ./ opt.S)
-    d.S .= N * opt.S
+    gS .= diag_ABt(d.S .* (x .- d.μ), Δ) / nSamples(alg)
+    G .= d.S - gS
+    
+    opt.m .= r[1] * opt.m + (1 - r[1]) * g # Update of the momentum
+    d.μ .= d.μ - η * (1 - r[2]^k) / (1 - r[1]^k) * d.S .\ ((1 - r[1]) * g + r[1] * opt.m)
+    d.S .= 0.5 * (d.S + (d.S + (1 - r[2]) * h).^2 ./ d.S)
+
+    opt.k += 1
 end
