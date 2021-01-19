@@ -316,7 +316,7 @@ function Distributions._rand!(
   ) where {T}
   nDim = length(x)
   nDim == dim(d) || error("Wrong dimensions")
-  x .= d.μ + d.Γ .* randn(rng, T, size(d.Γ, 2)) + d.D .* randn(rng, T, nDim)
+  x .= d.μ + d.Γ * randn(rng, T, size(d.Γ, 2)) + d.D .* randn(rng, T, nDim)
 end
 
 function Distributions._rand!(
@@ -326,7 +326,7 @@ function Distributions._rand!(
 ) where {T}
   nDim, nPoints = size(x)
   nDim == d.dim || error("Wrong dimensions")
-  x .= d.μ + d.Γ .* randn(rng, T, size(d.Γ, 2), nPoints) + d.D .* randn(rng, T, nDim, nPoints)
+  x .= d.μ .+ d.Γ * randn(rng, T, size(d.Γ, 2), nPoints) + d.D .* randn(rng, T, nDim, nPoints)
 end
 
 Distributions.cov(d::FCSMvNormal) = d.Γ * d.Γ' + Diagonal(abs2.(d.D))
@@ -438,7 +438,7 @@ struct MFSamplesMvNormal{
         n_particles::Int,
         x::Tx,
         μ::Tμ,
-    ) where {T,Tx<:AbstractMatrix{T},Ti,Tμ<:AbstractVector{T}}
+    ) where {T,Tx<:AbstractMatrix{T},Tμ<:AbstractVector{T}}
         return new{T,Tx,Tμ}(dim, n_particles, x, μ)
     end
 end
