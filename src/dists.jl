@@ -337,7 +337,7 @@ abstract type AbstractSamplesMvNormal{T} <:
 
 nParticles(d::AbstractSamplesMvNormal) = d.n_particles
 Distributions.mean(d::AbstractSamplesMvNormal) = d.μ
-Distributions.var(d::AbstractSamplesMvNormal) = var(d.x, dims = 2)
+Distributions.var(d::AbstractSamplesMvNormal) = var(d.x, dims = 2) .+ 1e-8
 Distributions.entropy(d::AbstractSamplesMvNormal) = 0.5 * (log2π + logdet(cov(d) + 1e-5I))
 
 function update_q!(d::AbstractSamplesMvNormal)
@@ -377,7 +377,7 @@ struct SamplesMvNormal{
     end
 end
 
-Distributions.cov(d::SamplesMvNormal) = cov(d.x, dims = 2, )
+Distributions.cov(d::SamplesMvNormal) = cov(d.x, dims = 2) + 1e-8 * I
 
 @functor SamplesMvNormal
 
