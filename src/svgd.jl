@@ -62,6 +62,20 @@ function _logπ(logπ, x, tr)
     return logπ(z) + logdet
 end
 
+function grad!(
+    alg::Union{GaussPFlow{<:ForwardDiffAD}, SVGD{<:ForwardDiffAD}},
+    q,
+    logπ,
+    out::DiffResults.MutableDiffResult,
+    args...,
+)
+    f(x) = sum(mapslices(z -> phi(logπ, q, z), x, dims = 1))
+    chunk_size = getchunksize(typeof(alg))
+    # Set chunk size and do ForwardMode.
+    chunk = ForwardDiff.Chunk(min(length(q.dist.x), chunk_size))
+    config = ForwardDiff.GradientConfig(f, q.dist.x, chunk)
+    ForwardDiff.gradient!(out, f, q.dist.x, config)
+end
 
 function optimize!(
     vo,
@@ -77,8 +91,12 @@ function optimize!(
     max_iters = alg.max_iters
 
     # diff_result = DiffResults.GradientResult(θ)
-    alg.kernel.transform.s .= log(q.dist.n_particles) / sqrt(median(
-    pairwise(SqEuclidean(), q.dist.x, dims = 2)))
+    if alg.kernel isa TransformedKernel
+        alg.kernel.transform.s .= log(q.dist.n_particles) / sqrt(median(
+        pairwise(SqEuclidean(), q.dist.x, dims = 2)))
+    end
+
+    diff_result = DiffResults.GradientResult(q.dist.x)
 
     i = 0
     prog = if PROGRESS[]
@@ -86,20 +104,22 @@ function optimize!(
     else
         0
     end
+    Δ = similar(q.dist.x) #Preallocate gradient
+    K = zeros(q.dist.n_particles, q.dist.n_particles)
 
     time_elapsed = @elapsed while (i < max_iters) # & converged
 
-        logπbase = if !isnothing(hyperparams)
+        _logπ = if !isnothing(hyperparams)
             logπ(hyperparams)
         else
             logπ
         end
 
-        Δ = similar(q.dist.x) #Preallocate gradient
-        K = kernelmatrix(alg.kernel, q.dist.x, obsdim = 2) #Compute kernel matrix
-        gradlogp = ForwardDiff.gradient.(
-            x -> eval_logπ(logπbase, q, x),
-            eachcol(q.dist.x))
+        kernelmatrix!(K, alg.kernel, q.dist.x, obsdim = 2) #Compute kernel matrix
+
+        grad!(alg, q, _logπ, diff_result)
+
+        gradlogp = DiffResults.gradient(diff_result)
         # Option 1 : Preallocate
         # global gradK = reshape(
         #     ForwardDiff.jacobian(
@@ -112,14 +132,18 @@ function optimize!(
         #         for j in 1:q.dist.n_particles) / q.dist.n_particles
         # end
         # Option 2 : On time computations
-        for k = 1:q.dist.n_particles
-            Δ[:, k] =
-                mean(
-                    K[j, k] * gradlogp[j] + ForwardDiff.gradient(
-                        x -> alg.kernel(x, q.dist.x[:, k]),
-                        q.dist.x[:, j],
-                    ) for j in 1:q.dist.n_particles
-                )
+        if alg.kernel isa TransformedKernel
+            for k = 1:q.dist.n_particles
+                Δ[:, k] =
+                    mean(
+                        K[j, k] * gradlogp[j] + ForwardDiff.gradient(
+                            x -> alg.kernel(x, q.dist.x[:, k]),
+                            q.dist.x[:, j],
+                        ) for j in 1:q.dist.n_particles
+                    )
+            end
+        elseif alg.kernel isa LinearKernel
+            Δ = gradlogp * K / q.dist.n_particles + q.dist.x
         end
 
 

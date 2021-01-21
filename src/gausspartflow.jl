@@ -16,21 +16,6 @@ GaussPFlow() = GaussPFlow(100, true, false)
 
 alg_str(::GaussPFlow) = "GaussPFlow"
 
-function grad!(
-    alg::GaussPFlow{<:ForwardDiffAD},
-    q,
-    logπ,
-    out::DiffResults.MutableDiffResult,
-    args...,
-)
-    f(x) = sum(mapslices(z -> phi(logπ, q, z), x, dims = 1))
-    chunk_size = getchunksize(typeof(alg))
-    # Set chunk size and do ForwardMode.
-    chunk = ForwardDiff.Chunk(min(length(q.dist.x), chunk_size))
-    config = ForwardDiff.GradientConfig(f, q.dist.x, chunk)
-    ForwardDiff.gradient!(out, f, q.dist.x, config)
-end
-
 phi(logπ, q, x) = -eval_logπ(logπ, q, x)
 
 function optimize!(

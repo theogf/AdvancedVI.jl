@@ -30,7 +30,7 @@ function AdvancedVI.grad!(
 end
 function grad!(
     vo,
-    alg::GaussPFlow{<:AdvancedVI.ZygoteAD},
+    alg::Union{GaussPFlow{<:AdvancedVI.ZygoteAD},SVGD{<:AdvancedVI.ZygoteAD}},
     q,
     logπ,
     θ::AbstractVector{<:Real},

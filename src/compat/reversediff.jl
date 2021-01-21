@@ -37,7 +37,7 @@ function AdvancedVI.grad!(
 end
 
 function grad!(
-    ::GaussPFlow{<:ReverseDiffAD},
+    ::Union{GaussPFlow{<:ReverseDiffAD},SVGD{<:ReverseDiffAD}},
     q,
     logπ,
     out::DiffResults.MutableDiffResult,
