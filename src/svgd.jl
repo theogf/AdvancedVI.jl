@@ -116,10 +116,9 @@ function optimize!(
         end
 
         kernelmatrix!(K, alg.kernel, q.dist.x, obsdim = 2) #Compute kernel matrix
-
         grad!(alg, q, _logπ, diff_result)
 
-        gradlogp = DiffResults.gradient(diff_result)
+        gradlogp = -DiffResults.gradient(diff_result)
         # Option 1 : Preallocate
         # global gradK = reshape(
         #     ForwardDiff.jacobian(
@@ -132,25 +131,31 @@ function optimize!(
         #         for j in 1:q.dist.n_particles) / q.dist.n_particles
         # end
         # Option 2 : On time computations
-        if alg.kernel isa TransformedKernel
+        if alg.kernel isa TransformedKernel# || alg.kernel isa LinearKernel
             for k = 1:q.dist.n_particles
                 Δ[:, k] =
                     mean(
-                        K[j, k] * gradlogp[j] + ForwardDiff.gradient(
+                        K[j, k] * gradlogp[:, j] + ForwardDiff.gradient(
                             x -> alg.kernel(x, q.dist.x[:, k]),
                             q.dist.x[:, j],
                         ) for j in 1:q.dist.n_particles
                     )
             end
         elseif alg.kernel isa LinearKernel
-            Δ = gradlogp * K / q.dist.n_particles + q.dist.x
+            Δ .=  (gradlogp * K  + q.dist.x * (q.dist.n_particles + 1)) / q.dist.n_particles
         end
 
 
         # apply update rule
         # Δ = DiffResults.gradient(diff_result)
-        Δ = apply!(optimizer, q.dist.x, Δ)
+        Δ .= apply!(optimizer, q.dist.x, Δ)
         @. q.dist.x = q.dist.x + Δ
+        if any(isnan.(q.dist.x))
+            @show gradlogp
+            @show K
+            @show i
+            break
+        end
         # alg.kernel.transform.s .=
         #     log(q.dist.n_particles) / sqrt(median(
         #     pairwise(SqEuclidean(), q.dist.x, dims = 2)))
