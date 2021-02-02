@@ -118,7 +118,7 @@ function optimize!(
         kernelmatrix!(K, alg.kernel, q.dist.x, obsdim = 2) #Compute kernel matrix
         grad!(alg, q, _logπ, diff_result)
 
-        gradlogp = -DiffResults.gradient(diff_result)
+        gradlogp = DiffResults.gradient(diff_result)
         # Option 1 : Preallocate
         # global gradK = reshape(
         #     ForwardDiff.jacobian(
@@ -150,10 +150,7 @@ function optimize!(
         # Δ = DiffResults.gradient(diff_result)
         Δ .= apply!(optimizer, q.dist.x, Δ)
         @. q.dist.x = q.dist.x + Δ
-        if any(isnan.(q.dist.x))
-            @show gradlogp
-            @show K
-            @show i
+        if any(isnan, q.dist.x)
             break
         end
         # alg.kernel.transform.s .=

@@ -377,7 +377,7 @@ struct SamplesMvNormal{
     end
 end
 
-Distributions.cov(d::SamplesMvNormal) = cov(d.x, dims = 2) + 1e-8 * I
+Distributions.cov(d::SamplesMvNormal) = cov(d.x, dims = 2, corrected=false)
 
 @functor SamplesMvNormal
 
