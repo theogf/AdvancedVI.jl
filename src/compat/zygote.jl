@@ -28,23 +28,36 @@ function AdvancedVI.grad!(
     DiffResults.gradient!(out, dy)
     return out
 end
+
 function grad!(
-    vo,
-    alg::Union{GaussPFlow{<:AdvancedVI.ZygoteAD},SVGD{<:AdvancedVI.ZygoteAD}},
+    ::Union{GaussPFlow{<:AdvancedVI.ZygoteAD},SVGD{<:AdvancedVI.ZygoteAD}},
     q,
     logπ,
-    θ::AbstractVector{<:Real},
     out::DiffResults.MutableDiffResult,
     args...
 )
-    function logjoint(x)
-        sum(map(axes(x, 2)) do i
-            # phi(logπ, q, x[:, i])
-            phi(logπ, q, view(x, :, i))
-        end
-        )
+    f(x) = sum(eachcol(x)) do z
+        phi(logπ, q, z)
     end
-    val, back = Zygote.pullback(logjoint, q.dist.x)
+    val, back = Zygote.pullback(f, q.dist.x)
+    dy = first(back(1.0))
+    DiffResults.value!(out, val)
+    DiffResults.gradient!(out, dy)
+    return out
+end
+
+function grad!(
+    ::GVA{<:AdvancedVI.ZygoteAD},
+    q,
+    logπ,
+    x,
+    out::DiffResults.MutableDiffResult,
+    args...
+)
+    f(x) = sum(eachcol(x)) do z
+        phi(logπ, q, z)
+    end
+    val, back = Zygote.pullback(f, x)
     dy = first(back(1.0))
     DiffResults.value!(out, val)
     DiffResults.gradient!(out, dy)

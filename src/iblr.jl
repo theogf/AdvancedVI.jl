@@ -20,7 +20,6 @@ IBLR() = IBLR(100, 100, :hess)
 alg_str(::IBLR) = "IBLR"
 
 function hessian!( # Does not work currently... 
-    vo,
     alg::IBLR{<:ForwardDiffAD},
     q,
     logπ,
@@ -79,7 +78,7 @@ function optimize!(
 
         reparametrize!(x, q.dist, z)
 
-        grad!(vo, alg, q, _logπ, x, diff_result, samples_per_step)
+        grad!(alg, q, _logπ, x, diff_result, samples_per_step)
         # hessian!(vo, alg, q, _logπ, x, hess_results, samples_per_step)
         Δ = DiffResults.gradient(diff_result)
         

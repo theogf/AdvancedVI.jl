@@ -43,29 +43,25 @@ function grad!(
     out::DiffResults.MutableDiffResult,
     args...
 )
-    f(x) = sum(mapslices(
-        z -> phi(logπ, q, z),
-        x,
-        dims = 1,
-    ))
+    f(x) = sum(eachcol(x)) do z
+        phi(logπ, q, z)
+    end
     tp = AdvancedVI.tape(f, q.dist.x)
     ReverseDiff.gradient!(out, tp, q.dist.x)
     return out
 end
 
 function grad!(
-    vo,
-    alg::GVA{<:ReverseDiffAD},
+    ::GVA{<:ReverseDiffAD},
     q,
     logπ,
     x,
     out::DiffResults.MutableDiffResult,
     args...
 )
-    f(x) = sum(mapslices(
+    f(x) = sum(map(
         z -> phi(logπ, q, z),
-        x,
-        dims = 1,
+        eachcol(x),
     ))
     tp = AdvancedVI.tape(f, x)
     ReverseDiff.gradient!(out, tp, x)

@@ -63,7 +63,7 @@ function optimize!(
 
         Distributions.rand!(q, x) # Sample from q
 
-        grad!(vo, alg, q, _logπ, x, diff_result, samples_per_step)
+        grad!(alg, q, _logπ, x, diff_result, samples_per_step)
 
         Δ = DiffResults.gradient(diff_result)
         

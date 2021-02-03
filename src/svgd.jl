@@ -62,21 +62,6 @@ function _logπ(logπ, x, tr)
     return logπ(z) + logdet
 end
 
-function grad!(
-    alg::Union{GaussPFlow{<:ForwardDiffAD}, SVGD{<:ForwardDiffAD}},
-    q,
-    logπ,
-    out::DiffResults.MutableDiffResult,
-    args...,
-)
-    f(x) = sum(mapslices(z -> phi(logπ, q, z), x, dims = 1))
-    chunk_size = getchunksize(typeof(alg))
-    # Set chunk size and do ForwardMode.
-    chunk = ForwardDiff.Chunk(min(length(q.dist.x), chunk_size))
-    config = ForwardDiff.GradientConfig(f, q.dist.x, chunk)
-    ForwardDiff.gradient!(out, f, q.dist.x, config)
-end
-
 function optimize!(
     vo,
     alg::SVGD,
@@ -118,7 +103,7 @@ function optimize!(
         kernelmatrix!(K, alg.kernel, q.dist.x, obsdim = 2) #Compute kernel matrix
         grad!(alg, q, _logπ, diff_result)
 
-        gradlogp = DiffResults.gradient(diff_result)
+        neg_gradlogp = DiffResults.gradient(diff_result)
         # Option 1 : Preallocate
         # global gradK = reshape(
         #     ForwardDiff.jacobian(
@@ -135,14 +120,14 @@ function optimize!(
             for k = 1:q.dist.n_particles
                 Δ[:, k] =
                     mean(
-                        K[j, k] * gradlogp[:, j] + ForwardDiff.gradient(
+                        -K[j, k] * neg_gradlogp[j] + ForwardDiff.gradient(
                             x -> alg.kernel(x, q.dist.x[:, k]),
                             q.dist.x[:, j],
                         ) for j in 1:q.dist.n_particles
                     )
             end
         elseif alg.kernel isa LinearKernel
-            Δ .=  (gradlogp * K  + q.dist.x * (q.dist.n_particles + 1)) / q.dist.n_particles
+            Δ = -neg_gradlogp * K / q.dist.n_particles + q.dist.x
         end
 
 

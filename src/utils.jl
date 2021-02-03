@@ -31,7 +31,7 @@ function eval_logπ(logπ, q::TransformedDistribution, x)
     return logπ(z) + logjac
 end
 
-function eval_logπ(logπ, q::Distribution, x)
+function eval_logπ(logπ, ::Distribution, x)
     return logπ(x)
 end
 

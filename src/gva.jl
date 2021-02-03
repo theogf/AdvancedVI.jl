@@ -59,7 +59,6 @@ function vi(
 end
 
 function grad!(
-    vo,
     alg::GVA{<:ForwardDiffAD},
     q,
     logπ,
@@ -67,12 +66,31 @@ function grad!(
     out::DiffResults.MutableDiffResult,
     args...,
 )
-    f(x) = sum(z->phi(logπ, q, z), eachcol(x))
+    f(x) = sum(eachcol(x)) do z
+        phi(logπ, q, z)
+    end
     chunk_size = getchunksize(typeof(alg))
     # Set chunk size and do ForwardMode.
     chunk = ForwardDiff.Chunk(min(length(x), chunk_size))
     config = ForwardDiff.GradientConfig(f, x, chunk)
     ForwardDiff.gradient!(out, f, x, config)
+end
+
+function grad!(
+    alg::Union{GaussPFlow{<:ForwardDiffAD}, SVGD{<:ForwardDiffAD}},
+    q,
+    logπ,
+    out::DiffResults.MutableDiffResult,
+    args...,
+)
+    f(x) = sum(eachcol(x)) do z
+        phi(logπ, q, z)
+    end
+    chunk_size = getchunksize(typeof(alg))
+    # Set chunk size and do ForwardMode.
+    chunk = ForwardDiff.Chunk(min(length(q.dist.x), chunk_size))
+    config = ForwardDiff.GradientConfig(f, q.dist.x, chunk)
+    ForwardDiff.gradient!(out, f, q.dist.x, config)
 end
 
 function (elbo::ELBO)(
