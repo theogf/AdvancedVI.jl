@@ -58,6 +58,8 @@ function vi(
     return q
 end
 
+
+# General version
 function grad!(
     alg::GVA{<:ForwardDiffAD},
     q,
@@ -76,8 +78,10 @@ function grad!(
     ForwardDiff.gradient!(out, f, x, config)
 end
 
+
+# Version for particles
 function grad!(
-    alg::Union{GaussPFlow{<:ForwardDiffAD}, SVGD{<:ForwardDiffAD}},
+    alg::GVA{<:ForwardDiffAD},
     q,
     logπ,
     out::DiffResults.MutableDiffResult,
